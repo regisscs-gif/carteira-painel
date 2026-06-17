@@ -128,7 +128,7 @@
   <section id="irpf" class="hide grid"></section>
 </div>
 
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.0.3 · 2026-06-17</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.0.4 · 2026-06-17</div>
 <div id="diag" style="position:fixed;left:8px;bottom:24px;max-width:92vw;max-height:42vh;overflow:auto;font-size:11px;color:var(--mut);background:rgba(0,0,0,.55);padding:6px 9px;border-radius:8px;white-space:pre-wrap;display:none;z-index:70"></div>
 
 <script src="config.js"></script>
@@ -598,7 +598,8 @@ function aggOwner(rows){
 }
 
 async function loadData(){
-  const grab = async (t)=>{ const {data,error}=await sb.from(t).select('*'); if(error) throw error; return data||[]; };
+  const grab = async (t)=>{ const {data,error}=await sb.from(t).select('*');
+    if(error) throw new Error('tabela '+t+': '+(error.message||error.code||JSON.stringify(error))); return data||[]; };
   const [posR,cotR,provR,bensR,ganhosR,metaR,
          alvoR,objR,sunoR,rfR,aporteR] = await Promise.all([
     grab('posicoes'),grab('cotacoes'),grab('proventos'),grab('irpf_bens'),grab('irpf_ganhos'),grab('meta'),
@@ -725,14 +726,17 @@ async function startApp(session){
   document.getElementById('gate').classList.remove('hide');
   document.getElementById('gate').textContent='carregando…';
   try{
-    await loadData();
+    diag('UID='+UID);
+    diag('lendo tabelas…'); await loadData(); diag('tabelas ok');
+    diag('renderizando…'); buildTabs(); initPosUI(); recalc(); renderIRPF(); diag('render ok');
   }catch(e){
-    document.getElementById('gate').innerHTML='Erro ao carregar do Supabase: '+(e.message||e)+'<br><span class="sub">Verifique se o schema.sql foi aplicado e se você tem dados (seed).</span>';
+    diag('❌ ERRO: '+(e&&(e.message||e.code||JSON.stringify(e))||e));
+    document.getElementById('gate').innerHTML='Erro ao carregar: '+(e&&(e.message||e)||e)+'<br><span class="sub">Veja o box de diagnóstico embaixo.</span>';
     return;
   }
-  buildTabs(); initPosUI(); recalc(); renderIRPF();
   document.getElementById('gate').classList.add('hide');
   document.getElementById('app').classList.remove('hide');
+  diag('✓ app aberto');
 }
 function diag(msg){
   const d=document.getElementById('diag'); if(d){ d.style.display='block'; d.textContent+=msg+'\n'; }
