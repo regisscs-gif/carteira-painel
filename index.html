@@ -50,7 +50,7 @@
   .kpibox .l{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
   .note{color:var(--mut);font-size:12px;margin-top:10px}
   .warn{color:var(--c-stocks)}
-  .hide{display:none}
+  .hide{display:none!important}
   .link{color:var(--mut);font-size:12px;cursor:pointer;text-decoration:underline}
   #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:50}
   #gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:40;color:var(--mut)}
@@ -128,7 +128,7 @@
   <section id="irpf" class="hide grid"></section>
 </div>
 
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.0.4 · 2026-06-17</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.0.5 · 2026-06-17</div>
 <div id="diag" style="position:fixed;left:8px;bottom:24px;max-width:92vw;max-height:42vh;overflow:auto;font-size:11px;color:var(--mut);background:rgba(0,0,0,.55);padding:6px 9px;border-radius:8px;white-space:pre-wrap;display:none;z-index:70"></div>
 
 <script src="config.js"></script>
@@ -749,7 +749,7 @@ async function boot(){
   sb=window.supabase.createClient(window.SUPA_CONFIG.url, window.SUPA_CONFIG.anonKey,
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
-  diag('versão v3.0.3 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.0.5 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
