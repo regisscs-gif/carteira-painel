@@ -714,9 +714,13 @@ function showLogin(msg){
     sb.auth.signInWithOAuth({provider:'google', options:{redirectTo: location.href.split('#')[0].split('?')[0]}});
   };
 }
-async function startApp(){
+let APP_STARTED=false;
+async function startApp(session){
+  if(APP_STARTED) return; APP_STARTED=true;
+  UID=session.user.id;
   document.getElementById('login').classList.add('hide');
   document.getElementById('gate').classList.remove('hide');
+  document.getElementById('gate').textContent='carregando…';
   try{
     await loadData();
   }catch(e){
@@ -733,10 +737,15 @@ async function boot(){
   }
   sb=window.supabase.createClient(window.SUPA_CONFIG.url, window.SUPA_CONFIG.anonKey);
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
+  // reage a login (cobre o retorno do OAuth, que chega async)
+  sb.auth.onAuthStateChange((_e,session)=>{ if(session) startApp(session); });
   const {data}=await sb.auth.getSession();
-  if(!data.session){ showLogin(); return; }
-  UID=data.session.user.id;
-  await startApp();
+  if(data.session){ startApp(data.session); return; }
+  // se NAO estamos voltando do Google, mostra o login; senao espera o onAuthStateChange
+  const voltandoDoOAuth = location.hash.indexOf('access_token')>=0 || location.search.indexOf('code=')>=0;
+  if(!voltandoDoOAuth) showLogin();
+  // rede de seguranca: se em 6s nada logou, mostra o login com aviso
+  setTimeout(()=>{ if(!APP_STARTED) showLogin('Não consegui detectar a sessão. Tente entrar de novo.'); },6000);
 }
 boot();
 </script>
