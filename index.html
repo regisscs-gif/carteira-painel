@@ -128,8 +128,8 @@
   <section id="irpf" class="hide grid"></section>
 </div>
 
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.0.5 · 2026-06-17</div>
-<div id="diag" style="position:fixed;left:8px;bottom:24px;max-width:92vw;max-height:42vh;overflow:auto;font-size:11px;color:var(--mut);background:rgba(0,0,0,.55);padding:6px 9px;border-radius:8px;white-space:pre-wrap;display:none;z-index:70"></div>
+<div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.1.0 · 2026-06-17</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -643,8 +643,10 @@ async function loadData(){
     ganhos[a].ganho=Math.round((ganhos[a].ganho+N(v.ganho))*100)/100;});
 
   D={ gerado_em: metaMap.precos_atualizado_em||metaMap.gerado_em||'—',
+      refresh_iso: metaMap.refresh_em_iso||null, refresh_status: metaMap.refresh_status||'', refresh_msg: metaMap.refresh_msg||'',
       posicoes, proventos, irpf:{ano_base:anoBase,bens_atual,bens_anterior,ganhos} };
   document.getElementById('gerado').textContent='atualizado em '+D.gerado_em;
+  renderPiStatus();
 
   // ---- configuracoes ----
   alvoClasseAll={}; OWNERS.forEach(o=>alvoClasseAll[o]=Object.assign({},defAlvo));
@@ -738,10 +740,26 @@ async function startApp(session){
   document.getElementById('app').classList.remove('hide');
   diag('✓ app aberto');
 }
-function diag(msg){
-  const d=document.getElementById('diag'); if(d){ d.style.display='block'; d.textContent+=msg+'\n'; }
-  try{console.log('[diag]',msg);}catch(e){}
+function diag(msg){ try{console.log('[diag]',msg);}catch(e){} }
+
+/* status do Raspberry (última atualização ok/erro) — mostrado perto da versão */
+function renderPiStatus(){
+  const el=document.getElementById('pistatus'); if(!el||!D) return;
+  const iso=D.refresh_iso, st=D.refresh_status;
+  if(!iso){ el.textContent=''; return; }
+  const ageMin=(Date.now()-new Date(iso).getTime())/60000;
+  const now=new Date(), dow=now.getDay(), hr=now.getHours();
+  const pregao = dow>=1 && dow<=5 && hr>=10 && hr<19;   // horário B3 (BRT)
+  const quando = ageMin<1 ? 'agora' : ageMin<60 ? ('há '+Math.round(ageMin)+' min')
+    : ageMin<1440 ? ('há '+Math.round(ageMin/60)+' h')
+    : new Date(iso).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  let cor, txt;
+  if(st==='erro'){ cor='var(--neg)'; txt='⚠ Pi: falha ao atualizar ('+quando+')'; }
+  else if(pregao && ageMin>40){ cor='var(--c-stocks)'; txt='⚠ Pi sem atualizar '+quando; }
+  else { cor='var(--mut)'; txt='Pi atualizou '+quando; }
+  el.textContent=txt; el.style.color=cor;
 }
+setInterval(renderPiStatus, 60000);   // reavalia o "há X min" enquanto a página fica aberta
 async function boot(){
   if(!window.SUPA_CONFIG || !window.supabase){
     document.getElementById('gate').textContent='Falta config.js ou o cliente Supabase.'; return;
