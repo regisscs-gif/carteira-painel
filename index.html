@@ -138,7 +138,7 @@
 </div>
 
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.3.0 · 2026-06-17</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.4.0 · 2026-06-17</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -173,6 +173,7 @@ let rfEntries=[];           // [{titulo,valor}]
 let suno={FIIs:{},Acoes:{}};
 let sunoTxt={FIIs:'',Acoes:''};
 let aporteAll={};           // {owner:{classe:valor}}
+let venderSet=new Set();    // tickers marcados manualmente p/ vender
 
 // objetivo/rank/status efetivos da visao atual (manual sobrescreve Suno; ETF so manual)
 function effObj(tk,classe){const m=objManual[owner]||{}; if(m[tk]!=null) return m[tk];
@@ -316,13 +317,16 @@ function renderPos(){
     const aguardar=String(effStatus(r.ticker,r.classe)).toLowerCase().indexOf('aguard')>=0;
     const fora=sunoLoaded && effRank(r.ticker,r.classe)===999;
     const manual=(objManual[owner]||{})[r.ticker]!=null;
-    const tags=(aguardar?' <span class="tag warn">Aguardar</span>':'')+(fora?' <span class="tag neg">Fora</span>':'');
+    const marcado=venderSet.has(r.ticker);
+    const tags=(aguardar?' <span class="tag warn">Aguardar</span>':'')+(fora?' <span class="tag neg">Fora</span>':'')
+      +(marcado?' <span class="tag" style="background:var(--c-rf);color:#fff">Vender</span>':'');
+    const vmark=` <span data-vd="${r.ticker}" title="marcar/desmarcar p/ vender" style="cursor:pointer;opacity:${marcado?1:.3}">🔖</span>`;
     const luc = r.preco>0 ? (r.preco>=r.pm?'var(--pos)':'var(--neg)') : 'var(--txt)';
     const precoCell=`<td><div style="font-weight:700;color:${luc}">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">PM ${fmt(r.pm)}</div></td>`;
     const objCells = showObj ? `<td><input data-tk="${r.ticker}" value="${obj!=null?(obj*100).toFixed(1):''}" placeholder="—" title="${manual?'manual (sobrescreve Suno)':'Suno'}" style="width:54px;text-align:right;background:var(--card2);color:${manual?'var(--c-stocks)':'var(--txt)'};border:1px solid var(--line);border-radius:5px;padding:1px 4px">%</td>`
       +`<td class="${dif!=null?cls(dif):''}">${dif!=null?(dif>0?'+':'')+dif.toFixed(1)+'%':'—'}</td>` : '';
     h+=`<tr>
-      <td><b>${r.ticker}</b>${tags}</td>
+      <td><b>${r.ticker}</b>${vmark}${tags}</td>
       ${precoCell}
       <td>${fmt0(r.qtd)}</td>
       <td><b>${fmt(r.valor)}</b></td>
@@ -350,6 +354,12 @@ function renderPos(){
     const tk=inp.dataset.tk, v=String(inp.value).trim();
     if(v===''){ delete objManual[owner][tk]; saveObj(owner,tk,null); }
     else { objManual[owner][tk]=numBR(v)/100; saveObj(owner,tk,objManual[owner][tk]); }
+    renderPos();
+  });
+  document.querySelectorAll('#posTable [data-vd]').forEach(el=>el.onclick=()=>{
+    const tk=el.dataset.vd;
+    if(venderSet.has(tk)){ venderSet.delete(tk); saveVender(tk,false); }
+    else { venderSet.add(tk); saveVender(tk,true); }
     renderPos();
   });
 }
@@ -570,6 +580,10 @@ function renderIRPF(){
    Persistencia das configuracoes -> Supabase (cfg_*)
 ==================================================================== */
 function saveAlvo(o,c,val){ sb.from('cfg_alvo_classe').upsert({owner_uid:UID,titular:o,classe:c,alvo:val},{onConflict:'owner_uid,titular,classe'}).then(()=>{}); }
+function saveVender(tk,on){
+  if(on) sb.from('cfg_vender').upsert({owner_uid:UID,ticker:tk},{onConflict:'owner_uid,ticker'}).then(()=>{});
+  else sb.from('cfg_vender').delete().eq('owner_uid',UID).eq('ticker',tk).then(()=>{});
+}
 function saveObj(o,tk,pct){
   if(pct==null) sb.from('cfg_objetivos').delete().eq('owner_uid',UID).eq('titular',o).eq('ticker',tk).then(()=>{});
   else sb.from('cfg_objetivos').upsert({owner_uid:UID,titular:o,ticker:tk,pct:pct},{onConflict:'owner_uid,titular,ticker'}).then(()=>{});
@@ -674,6 +688,10 @@ async function loadData(){
 
   aporteAll={}; OWNERS.forEach(o=>aporteAll[o]={});
   aporteR.forEach(r=>{ (aporteAll[r.titular]=aporteAll[r.titular]||{})[r.classe]=N(r.valor); });
+
+  // cfg_vender e tolerante (tabela pode nao existir ainda): nao quebra o painel
+  venderSet=new Set();
+  try{ const vr=await grab('cfg_vender'); venderSet=new Set(vr.map(r=>r.ticker)); }catch(e){ diag('cfg_vender indisponivel: '+(e.message||e)); }
 }
 
 /* ====================================================================
@@ -840,7 +858,7 @@ async function boot(){
   sb=window.supabase.createClient(window.SUPA_CONFIG.url, window.SUPA_CONFIG.anonKey,
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
-  diag('versão v3.3.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.4.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
