@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carteira — Painel</title>
+<style>
+  :root{
+    --bg:#0f1422; --card:#171f33; --card2:#1f2942; --line:#2a3553;
+    --txt:#e8edf7; --mut:#8b97b3; --accent:#5b8cff;
+    --pos:#3ddc97; --neg:#ff6b7d;
+    --c-acoes:#5b8cff; --c-fiis:#3ddc97; --c-stocks:#ffb454; --c-rf:#9b7bff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--txt);font-size:14px;line-height:1.45}
+  .wrap{max-width:1120px;margin:0 auto;padding:24px 18px 60px}
+  header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:18px}
+  h1{font-size:20px;font-weight:700;letter-spacing:.2px}
+  .total{font-size:30px;font-weight:800;letter-spacing:-.5px}
+  .sub{color:var(--mut);font-size:12px}
+  .tabs{display:flex;gap:6px;margin:14px 0 20px;flex-wrap:wrap}
+  .tab{padding:8px 16px;border-radius:10px;background:var(--card);color:var(--mut);
+    cursor:pointer;border:1px solid transparent;font-weight:600;user-select:none}
+  .tab:hover{color:var(--txt)}
+  .tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:1fr 1fr}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
+  .card h2{font-size:13px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px;cursor:pointer;user-select:none}
+  thead th{position:sticky;top:0;background:var(--card);z-index:2;box-shadow:0 1px 0 var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  tbody tr:hover{background:var(--card2)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700}
+  .pos{color:var(--pos)} .neg{color:var(--neg)}
+  .pill{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:middle}
+  .filters{display:flex;gap:6px;margin-bottom:14px}
+  .fbtn{padding:6px 14px;border-radius:8px;background:var(--card2);color:var(--mut);cursor:pointer;font-weight:600;border:1px solid var(--line)}
+  .fbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .legend{display:flex;flex-direction:column;gap:10px}
+  .legrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .barwrap{height:8px;background:var(--card2);border-radius:6px;overflow:hidden;margin-top:5px}
+  .bar{height:100%;border-radius:6px}
+  .kpi{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:4px}
+  .kpibox{background:var(--card2);border-radius:12px;padding:12px 16px;flex:1;min-width:140px}
+  .kpibox .v{font-size:22px;font-weight:800}
+  .kpibox .l{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+  .note{color:var(--mut);font-size:12px;margin-top:10px}
+  .warn{color:var(--c-stocks)}
+  .hide{display:none}
+  .link{color:var(--mut);font-size:12px;cursor:pointer;text-decoration:underline}
+  #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:50}
+  #gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:40;color:var(--mut)}
+  @media(max-width:760px){.g2{grid-template-columns:1fr}.total{font-size:24px}}
+</style>
+</head>
+<body>
+
+<!-- tela de login (Google) -->
+<div id="login" class="hide">
+  <div class="card" style="text-align:center;max-width:340px">
+    <h1 style="margin-bottom:10px">📊 Carteira</h1>
+    <div class="sub" style="margin-bottom:18px">Acesso restrito. Entre com sua conta Google.</div>
+    <button id="btnLogin" class="fbtn on" style="border:none;cursor:pointer;padding:10px 22px">Entrar com Google</button>
+    <div class="note" id="loginMsg"></div>
+  </div>
+</div>
+
+<!-- splash enquanto carrega -->
+<div id="gate">carregando…</div>
+
+<div class="wrap hide" id="app">
+  <header>
+    <div>
+      <h1>📊 Carteira de Investimentos</h1>
+      <div class="sub" id="gerado"></div>
+    </div>
+    <div style="text-align:right">
+      <div class="total" id="totalGeral"></div>
+      <div class="sub">patrimônio total · <span class="link" id="sair">sair</span></div>
+    </div>
+  </header>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0 20px">
+    <div class="tabs" style="margin:0">
+      <div class="tab on" data-t="dash">Dashboard</div>
+      <div class="tab" data-t="pos">Posições</div>
+      <div class="tab" data-t="prov">Proventos</div>
+      <div class="tab" data-t="irpf">IRPF</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="sub">Visão:</span>
+      <div class="filters" id="ownerSel" style="margin:0"></div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <section id="dash" class="grid g2"></section>
+
+  <!-- POSICOES -->
+  <section id="pos" class="hide">
+    <div class="filters" id="posTipos"></div>
+    <div class="card"><div id="posTable"></div></div>
+    <details class="card" id="sunoPanel" style="margin-top:16px">
+      <summary style="cursor:pointer;color:var(--mut);font-weight:700">⚙ Objetivos por ativo — colar ranking do Suno</summary>
+      <div class="grid g2" style="margin-top:14px">
+        <div><div class="sub" style="margin-bottom:6px">FIIs — cole a tabela do Suno</div>
+          <textarea id="sunoFIIs" style="width:100%;height:120px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;font-family:monospace;font-size:12px"></textarea></div>
+        <div><div class="sub" style="margin-bottom:6px">Ações — cole a tabela do Suno</div>
+          <textarea id="sunoAcoes" style="width:100%;height:120px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;font-family:monospace;font-size:12px"></textarea></div>
+      </div>
+      <div style="margin-top:10px"><button id="sunoAplicar" class="fbtn on" style="border:none;cursor:pointer">Aplicar ranking</button></div>
+      <div class="note" id="sunoStatus" style="margin-top:10px"></div>
+    </details>
+    <details class="card" id="aportePanel" style="margin-top:16px">
+      <summary style="cursor:pointer;color:var(--mut);font-weight:700">💰 Sugestão de aporte — quanto comprar de cada ativo</summary>
+      <div id="aporte" class="grid" style="margin-top:14px"></div>
+    </details>
+  </section>
+
+  <!-- PROVENTOS -->
+  <section id="prov" class="hide grid"></section>
+
+  <!-- IRPF -->
+  <section id="irpf" class="hide grid"></section>
+</div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ====================================================================
+   Estado e helpers
+==================================================================== */
+const CLASSE_COR = {Acoes:'var(--c-acoes)',FIIs:'var(--c-fiis)',ETF:'var(--c-stocks)','Renda Fixa':'var(--c-rf)'};
+const CLASSES = ['Acoes','FIIs','ETF','Renda Fixa'];
+const TIPO_LABEL = {Acoes:'Ação',FIIs:'FII',ETF:'ETF','Renda Fixa':'Renda Fixa'};
+const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt0 = v => (v||0).toLocaleString('pt-BR',{maximumFractionDigits:0});
+const pct = v => (v||0).toFixed(1)+'%';
+const cls = v => v>0?'pos':(v<0?'neg':'');
+const sig = v => (v>0?'+':'')+fmt(v);
+const somaChip = (label,soma) => {const ok=Math.abs(soma-1)<0.005;
+  return `<span style="font-weight:700;color:${ok?'var(--pos)':'var(--c-stocks)'}">${label}: ${(soma*100).toFixed(1)}%</span>`;};
+const LSget=(k,def)=>{try{const v=localStorage.getItem(k);return v==null?def:JSON.parse(v);}catch(e){return def;}};
+const LSset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
+const numBR=v=>parseFloat(String(v).replace(',','.'))||0;
+const N=v=>Number(v)||0;
+
+const OWNERS=['Consolidado','Regis','Theo'];
+const defAlvo={Acoes:.25,FIIs:.30,ETF:.20,'Renda Fixa':.25};
+
+let sb=null, UID=null;
+let D=null;                 // {gerado_em, posicoes:{owner:[...]}, proventos:{owner:{...}}, irpf:{...}}
+let owner='Consolidado';
+let alvoClasseAll={};       // {owner:{classe:alvo}}
+let objManual={};           // {owner:{tk:pct}}
+let rfEntries=[];           // [{titulo,valor}]
+let suno={FIIs:{},Acoes:{}};
+let sunoTxt={FIIs:'',Acoes:''};
+let aporteAll={};           // {owner:{classe:valor}}
+
+// objetivo/rank/status efetivos da visao atual (manual sobrescreve Suno; ETF so manual)
+function effObj(tk,classe){const m=objManual[owner]||{}; if(m[tk]!=null) return m[tk];
+  if(classe==='FIIs'&&suno.FIIs[tk]) return suno.FIIs[tk].obj;
+  if(classe==='Acoes'&&suno.Acoes[tk]) return suno.Acoes[tk].obj; return null;}
+function effRank(tk,classe){
+  if(classe==='FIIs'&&suno.FIIs[tk]) return suno.FIIs[tk].rank;
+  if(classe==='Acoes'&&suno.Acoes[tk]) return suno.Acoes[tk].rank; return 999;}
+function effStatus(tk,classe){
+  if(classe==='FIIs'&&suno.FIIs[tk]) return suno.FIIs[tk].status;
+  if(classe==='Acoes'&&suno.Acoes[tk]) return suno.Acoes[tk].status; return '';}
+
+/* ====================================================================
+   Parser do ranking Suno (portado do gen_gs.py)
+==================================================================== */
+const REGEX_TICKER=/^[A-Z][A-Z0-9]{3}[0-9]{1,2}$/;
+const ALIAS={AXIA6:'AXIA3'};
+function deburr(s){s=String(s).toLowerCase();const de='áàâãäéèêëíìîïóòôõöúùûüç',pa='aaaaaeeeeiiiiooooouuuuc';let o='';for(let i=0;i<s.length;i++){const p=de.indexOf(s[i]);o+=p>=0?pa[p]:s[i];}return o;}
+function parsePct(v){if(v===''||v==null)return null;if(typeof v==='number')return v>1?v/100:v;let s=String(v).replace('%','').replace(',','.').split(' ').join('');let n=parseFloat(s);if(isNaN(n))return null;return n>1?n/100:n;}
+function tickerEmCelula(cel){const ps=String(cel).toUpperCase().split(/\s+/);for(const p of ps){const t=p.trim();if(REGEX_TICKER.test(t))return t;}return '';}
+function ehMult25(v){if(v==null||v<=0||v>0.6)return false;const q=v/0.025;return Math.abs(q-Math.round(q))<0.005;}
+function extrairRanking(texto){
+  const toks = String(texto).split(/[\t\n]+/).map(s=>s.trim()).filter(Boolean);
+  const map={}; let rank=0, cur=null, viesSeen=false;
+  for(const tok of toks){
+    const tk = tickerEmCelula(tok);
+    if(tk){
+      const real = ALIAS[tk]||tk;
+      if(!map[real]){ rank++; map[real]={obj:null,status:'',rank:rank}; }
+      cur=real; viesSeen=false;
+      continue;
+    }
+    if(!cur) continue;
+    const sv=deburr(tok);
+    if(sv.indexOf('aguard')>=0){ map[cur].status='Aguardar'; viesSeen=true; continue; }
+    if(sv.indexOf('comprar')>=0){ map[cur].status='Comprar'; viesSeen=true; continue; }
+    if(!viesSeen){ const p=parsePct(tok); if(ehMult25(p)) map[cur].obj=p; }
+  }
+  return map;
+}
+
+/* ====================================================================
+   Donut SVG
+==================================================================== */
+function donut(items){
+  const tot=items.reduce((s,i)=>s+i.valor,0)||1, R=70, C=2*Math.PI*R; let off=0;
+  let arcs='';
+  items.forEach(i=>{
+    const frac=i.valor/tot, len=frac*C;
+    arcs+=`<circle r="${R}" cx="90" cy="90" fill="none" stroke="${i.cor}" stroke-width="26"
+      stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 90 90)"/>`;
+    off+=len;
+  });
+  return `<svg viewBox="0 0 180 180" width="180" height="180">${arcs}
+    <circle r="52" cx="90" cy="90" fill="var(--card)"/></svg>`;
+}
+
+/* ====================================================================
+   recalc central (alocacao + total a partir de posicoes + RF)
+==================================================================== */
+let valClasse={}, totalGeral=0;
+function recalc(){
+  valClasse={Acoes:0,FIIs:0,ETF:0,'Renda Fixa':0};
+  (D.posicoes[owner]||[]).forEach(p=>{if(valClasse[p.classe]!=null)valClasse[p.classe]+=p.valor;});
+  valClasse['Renda Fixa']=(owner==='Theo')?0:rfEntries.reduce((s,r)=>s+(Number(r.valor)||0),0);
+  totalGeral=CLASSES.reduce((s,c)=>s+valClasse[c],0);
+  document.getElementById('totalGeral').textContent=fmt(totalGeral);
+  renderDash();
+  renderPos();
+  renderProv();
+  renderAporte();
+}
+
+/* ====================================================================
+   DASHBOARD (alvo por classe editavel)
+==================================================================== */
+function renderDash(){
+  const alvoClasse=alvoClasseAll[owner];
+  const showAlvo=owner!=='Consolidado';
+  const items=CLASSES.map(c=>({label:c,valor:valClasse[c],cor:CLASSE_COR[c]}));
+  let leg='<div class="legend">';
+  CLASSES.forEach(c=>{
+    const atual=totalGeral?valClasse[c]/totalGeral:0, alvo=alvoClasse[c]||0, diff=(atual-alvo)*100;
+    leg+=`<div>
+      <div class="legrow">
+        <span><span class="pill" style="background:${CLASSE_COR[c]}"></span>${TIPO_LABEL[c]}</span>
+        <span><b>${fmt(valClasse[c])}</b> <span class="sub">${pct(atual*100)}</span></span>
+      </div>
+      <div class="barwrap"><div class="bar" style="width:${Math.min(atual*100,100)}%;background:${CLASSE_COR[c]}"></div></div>
+      ${showAlvo?`<div class="sub" style="margin-top:3px">alvo <input data-c="${c}" value="${(alvo*100).toFixed(1)}" style="width:48px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:1px 4px;text-align:right">% · <span class="${cls(diff)}">${(diff>0?'+':'')+diff.toFixed(1)}%</span></div>`:''}
+    </div>`;
+  });
+  leg+='</div>';
+  const somaAlvo=CLASSES.reduce((s,c)=>s+(alvoClasse[c]||0),0);
+  document.getElementById('dash').innerHTML=`
+    <div class="card" style="display:flex;gap:20px;align-items:center;justify-content:center;flex-wrap:wrap">
+      <div style="position:relative;text-align:center">${donut(items)}
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">
+          <div class="sub">total</div><div style="font-weight:800;font-size:15px">${fmt(totalGeral)}</div></div>
+      </div></div>
+    <div class="card"><h2>Alocação por classe — ${owner}${showAlvo?' (alvo editável)':''}</h2>${leg}
+      ${showAlvo?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">${somaChip('Soma dos alvos', somaAlvo)}</div>`:''}</div>`;
+  document.querySelectorAll('#dash input[data-c]').forEach(inp=>inp.onchange=()=>{
+    const v=numBR(inp.value)/100;
+    alvoClasseAll[owner][inp.dataset.c]=v; saveAlvo(owner,inp.dataset.c,v); recalc();
+  });
+}
+
+/* ====================================================================
+   POSICOES
+==================================================================== */
+let posTipo='Acoes', posSort={k:'rank',dir:1};
+function renderPos(){
+  if(posTipo==='Renda Fixa'){ renderRF(); return; }
+  const showObj=owner!=='Consolidado';
+  const rows=(D.posicoes[owner]||[]).filter(r=>r.classe===posTipo).slice().sort((x,y)=>{
+    if(posSort.k==='rank'){ if(!showObj) return y.valor-x.valor;
+      const a=effRank(x.ticker,x.classe),b=effRank(y.ticker,y.classe); if(a!==b) return posSort.dir*(a-b); return y.valor-x.valor;}
+    let a=x[posSort.k],b=y[posSort.k];
+    if(typeof a==='string')return posSort.dir*a.localeCompare(b);
+    return posSort.dir*((a||0)-(b||0));
+  });
+  const totValor=rows.reduce((s,r)=>s+r.valor,0), totCusto=rows.reduce((s,r)=>s+r.custo,0);
+  const totClasse=totValor||1, totLP=totValor-totCusto;
+  const sunoLoaded=(posTipo==='FIIs'||posTipo==='Acoes') && Object.keys(posTipo==='FIIs'?suno.FIIs:suno.Acoes).length>0;
+  let somaObj=0;
+  let h=`<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px">
+    <div><div class="sub">Ativos</div><div style="font-weight:800;font-size:18px">${rows.length}</div></div>
+    <div><div class="sub">Custo total</div><div style="font-weight:800;font-size:18px">${fmt(totCusto)}</div></div>
+    <div><div class="sub">Valor total</div><div style="font-weight:800;font-size:18px">${fmt(totValor)}</div></div>
+    <div><div class="sub">Resultado</div><div class="${cls(totLP)}" style="font-weight:800;font-size:18px">${sig(totLP)} <span style="font-size:12px">(${(totCusto?totLP/totCusto*100:0).toFixed(1)}%)</span></div></div>
+  </div>`;
+  const cols=[['ticker','Ativo'],['preco','Preço (PM→atual)'],['qtd','Qtd'],
+    ['valor','Valor'],['lucro','L/P'],['lucro_pct','L/P %'],['valor','% atual']];
+  if(showObj) cols.push(['rank','Objetivo'],['rank','Diferença']);
+  h+='<table><thead><tr>'+cols.map(c=>`<th data-k="${c[0]}">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
+  rows.forEach(r=>{
+    const atual=r.valor/totClasse, obj=effObj(r.ticker,r.classe);
+    const dif=obj!=null?(atual-obj)*100:null;
+    if(obj!=null) somaObj+=obj;
+    const aguardar=String(effStatus(r.ticker,r.classe)).toLowerCase().indexOf('aguard')>=0;
+    const fora=sunoLoaded && effRank(r.ticker,r.classe)===999;
+    const manual=(objManual[owner]||{})[r.ticker]!=null;
+    const tags=(aguardar?' <span class="tag warn">Aguardar</span>':'')+(fora?' <span class="tag neg">Fora</span>':'');
+    const luc = r.preco>0 ? (r.preco>=r.pm?'var(--pos)':'var(--neg)') : 'var(--txt)';
+    const precoCell=`<td><div style="font-weight:700;color:${luc}">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">PM ${fmt(r.pm)}</div></td>`;
+    const objCells = showObj ? `<td><input data-tk="${r.ticker}" value="${obj!=null?(obj*100).toFixed(1):''}" placeholder="—" title="${manual?'manual (sobrescreve Suno)':'Suno'}" style="width:54px;text-align:right;background:var(--card2);color:${manual?'var(--c-stocks)':'var(--txt)'};border:1px solid var(--line);border-radius:5px;padding:1px 4px">%</td>`
+      +`<td class="${dif!=null?cls(dif):''}">${dif!=null?(dif>0?'+':'')+dif.toFixed(1)+'%':'—'}</td>` : '';
+    h+=`<tr>
+      <td><b>${r.ticker}</b>${tags}</td>
+      ${precoCell}
+      <td>${fmt0(r.qtd)}</td>
+      <td><b>${fmt(r.valor)}</b></td>
+      <td class="${cls(r.lucro)}">${sig(r.lucro)}</td>
+      <td class="${cls(r.lucro)}">${(r.lucro_pct>0?'+':'')+r.lucro_pct.toFixed(1)}%</td>
+      <td>${pct(atual*100)}</td>${objCells}</tr>`;
+  });
+  h+='</table>';
+  let foot=`Preço: cotação atual (verde=acima do PM, vermelho=abaixo) e PM embaixo`;
+  if(showObj) foot+=` · ${somaChip('Soma dos objetivos', somaObj)}`;
+  if(sunoLoaded) foot+=` · <span class="warn">Aguardar</span> = viés Suno · <span class="neg">Fora</span> = fora do ranking`;
+  if(showObj) foot+=` · Objetivo editável (manual sobrescreve o Suno; vazio = volta ao Suno) · clique em "Objetivo" p/ ordenar por ranking`;
+  if(!showObj) foot+=` · <span class="sub">visão Consolidada não usa objetivos (selecione Régis ou Theo)</span>`;
+  h+=`<div class="note">${foot}</div>`;
+  const anyPrice=rows.some(r=>r.fonte_preco==='yahoo');
+  if(rows.length && !anyPrice) h+=`<div class="note warn">⚠ Cotações no preço médio (sem cotação) — L/P zerado.</div>`;
+  document.getElementById('posTable').innerHTML=h;
+  document.querySelectorAll('#posTable th[data-k]').forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k;
+    if(k==='rank') posSort.dir=(posSort.k==='rank'?-posSort.dir:1);
+    else posSort.dir=(posSort.k===k?-posSort.dir:-1);
+    posSort.k=k; renderPos();
+  });
+  document.querySelectorAll('#posTable input[data-tk]').forEach(inp=>inp.onchange=()=>{
+    const tk=inp.dataset.tk, v=String(inp.value).trim();
+    if(v===''){ delete objManual[owner][tk]; saveObj(owner,tk,null); }
+    else { objManual[owner][tk]=numBR(v)/100; saveObj(owner,tk,objManual[owner][tk]); }
+    renderPos();
+  });
+}
+
+/* ====================================================================
+   Renda Fixa editavel
+==================================================================== */
+function renderRF(){
+  let h='<table><thead><tr><th>Título</th><th>Valor (R$)</th><th></th></tr></thead><tbody>';
+  rfEntries.forEach((r,i)=>{
+    h+=`<tr>
+      <td style="text-align:left"><input data-i="${i}" data-f="titulo" value="${String(r.titulo||'').replace(/"/g,'&quot;')}" style="width:100%;min-width:180px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px"></td>
+      <td><input data-i="${i}" data-f="valor" value="${r.valor}" style="width:130px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px;text-align:right"></td>
+      <td><span class="fbtn" data-rm="${i}" style="padding:2px 9px;cursor:pointer">✕</span></td></tr>`;
+  });
+  const tot=rfEntries.reduce((s,r)=>s+(Number(r.valor)||0),0);
+  h+=`</tbody></table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="fbtn" id="rfAdd" style="cursor:pointer">+ adicionar título</span>
+      <span class="fbtn on" id="rfSave" style="border:none;cursor:pointer">Salvar</span>
+      <span class="sub">total Renda Fixa: <b>${fmt(tot)}</b></span>
+    </div>
+    <div class="note">Edite os valores que você quer declarar. "Salvar" grava no Supabase e recalcula a alocação. (Use ponto ou vírgula decimal; sem separador de milhar.)</div>`;
+  document.getElementById('posTable').innerHTML=h;
+  document.querySelectorAll('#posTable input[data-i]').forEach(inp=>inp.onchange=()=>{
+    const i=+inp.dataset.i, f=inp.dataset.f;
+    rfEntries[i][f] = (f==='valor') ? numBR(inp.value) : inp.value;
+  });
+  document.querySelectorAll('#posTable [data-rm]').forEach(b=>b.onclick=()=>{
+    rfEntries.splice(+b.dataset.rm,1); renderRF();
+  });
+  document.getElementById('rfAdd').onclick=()=>{ rfEntries.push({titulo:'Novo título',valor:0}); renderRF(); };
+  document.getElementById('rfSave').onclick=()=>{ saveRF(); recalc(); };
+}
+
+/* ====================================================================
+   Resumo do ranking colado
+==================================================================== */
+function resumoSuno(){
+  const held=cl=>(D.posicoes.Consolidado||[]).filter(p=>p.classe===cl).map(p=>p.ticker);
+  function linha(nome, map, heldTks){
+    const ks=Object.keys(map);
+    if(!ks.length) return '<b>'+nome+'</b>: nada reconhecido — confira a colagem.';
+    const ag=ks.filter(t=>String(map[t].status).toLowerCase().indexOf('aguard')>=0);
+    const semObj=heldTks.filter(t=>!map[t]);
+    const naoTenho=ks.filter(t=>heldTks.indexOf(t)<0);
+    let s='<b>'+nome+'</b>: '+ks.length+' ativos no ranking';
+    if(ag.length) s+=' · <span class="warn">Aguardar ('+ag.length+'): '+ag.join(', ')+'</span>';
+    if(semObj.length) s+=' · na carteira sem objetivo no ranking: '+semObj.join(', ');
+    if(naoTenho.length) s+=' · no ranking e você não tem: '+naoTenho.join(', ');
+    return s;
+  }
+  return linha('FIIs', suno.FIIs, held('FIIs')) + '<br>' + linha('Ações', suno.Acoes, held('Acoes'));
+}
+
+/* ====================================================================
+   PROVENTOS
+==================================================================== */
+function renderProv(){
+  const p=D.proventos[owner]||{por_mes:[],por_ticker:[],total:0,total_estimado:0,n_lanc:0};
+  const meses=p.por_mes.slice(-24);
+  const max=Math.max(...meses.map(m=>m.valor),1);
+  let bars='<div style="display:flex;align-items:flex-end;gap:3px;height:160px;overflow-x:auto">';
+  meses.forEach(m=>{
+    const hpx=Math.round(m.valor/max*150)+2;
+    const cor=m.estimado?'var(--c-stocks)':'var(--c-fiis)';
+    bars+=`<div title="${m.mes}: ${fmt(m.valor)}${m.estimado?' (estimado)':''}" style="flex:1;min-width:14px;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+      <div style="height:${hpx}px;background:${cor};border-radius:4px 4px 0 0"></div></div>`;
+  });
+  bars+='</div><div class="sub" style="margin-top:6px">'+(meses[0]?meses[0].mes:'')+' → '+(meses.length?meses[meses.length-1].mes:'')
+    +' · <span class="pill" style="background:var(--c-fiis)"></span>real <span class="pill" style="background:var(--c-stocks)"></span>estimado (Yahoo)</div>';
+  const ult12=p.por_mes.slice(-12).reduce((s,m)=>s+m.valor,0);
+  let top='<table><thead><tr><th>Ativo</th><th>Recebido</th></tr></thead><tbody>';
+  p.por_ticker.slice(0,25).forEach(t=>top+=`<tr><td><b>${t.ticker}</b></td><td>${fmt(t.valor)}</td></tr>`);
+  top+='</tbody></table>';
+  const est=p.total_estimado||0;
+  const estBox = est>0
+    ? `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn">${fmt(est)}</div></div>`
+    : `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v sub" style="font-size:13px">—</div></div>`;
+  document.getElementById('prov').innerHTML=`
+    <div class="card"><div class="kpi">
+      <div class="kpibox"><div class="l">Total (real + estimado)</div><div class="v">${fmt(p.total)}</div></div>
+      <div class="kpibox"><div class="l">Últimos 12 meses</div><div class="v">${fmt(ult12)}</div></div>
+      ${estBox}
+      <div class="kpibox"><div class="l">Lançamentos</div><div class="v">${fmt0(p.n_lanc)}</div></div>
+    </div></div>
+    <div class="card"><h2>Proventos por mês — ${owner} (últimos 24)</h2>${bars}</div>
+    <div class="card"><h2>Por ativo (top 25)</h2>${top}</div>`;
+}
+
+/* ====================================================================
+   APORTE (sugestao de compra por ranking; segue a visao global)
+==================================================================== */
+const APORTE_CLASSES=['Acoes','FIIs','ETF'];
+const getAporteInputs=()=>aporteAll[owner]||{};
+function renderAporte(){
+  const el=document.getElementById('aporte');
+  if(owner==='Consolidado'){
+    el.innerHTML=`<div class="card"><h2>Aporte</h2><div class="note">A visão Consolidada não usa objetivos. Selecione <b>Régis</b> ou <b>Theo</b> para sugerir o aporte.</div></div>`;
+    return;
+  }
+  const saved=getAporteInputs();
+  const totalOwner=CLASSES.reduce((s,c)=>s+(valClasse[c]||0),0);
+  let guia=`<table><thead><tr><th>Classe</th><th>Valor atual</th><th>% atual</th><th>% alvo</th><th>Defasagem</th><th>Aporte R$</th></tr></thead><tbody>`;
+  APORTE_CLASSES.forEach(c=>{
+    const v=valClasse[c]||0, atual=totalOwner?v/totalOwner:0, alvo=alvoClasseAll[owner][c]||0;
+    const defas=alvo*totalOwner-v;
+    guia+=`<tr>
+      <td style="text-align:left"><span class="pill" style="background:${CLASSE_COR[c]}"></span>${TIPO_LABEL[c]}</td>
+      <td>${fmt(v)}</td><td>${pct(atual*100)}</td><td>${pct(alvo*100)}</td>
+      <td class="${cls(defas)}">${defas>0?'falta '+fmt(defas):'no alvo'}</td>
+      <td><input data-ap="${c}" value="${saved[c]||''}" placeholder="0" style="width:120px;text-align:right;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px"></td>
+    </tr>`;
+  });
+  guia+='</tbody></table>';
+  el.innerHTML=`
+    <div class="card"><h2>Aporte — ${owner}</h2>
+      ${guia}
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span class="sub">Total a aportar:</span>
+        <input id="apTotal" placeholder="0" style="width:130px;text-align:right;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px">
+        <span class="fbtn" id="apSugerir" style="cursor:pointer">Sugerir divisão</span>
+        <span class="fbtn on" id="apCalcular" style="border:none;cursor:pointer">Calcular aporte</span>
+      </div>
+      <div class="note">RF fica de fora (sem ranking por título). "Sugerir divisão" joga o total nas classes mais defasadas; você pode editar antes de calcular.</div>
+    </div>
+    <div class="card" id="apResultado"><div class="note">Informe os valores e clique em "Calcular aporte".</div></div>`;
+  document.querySelectorAll('#aporte input[data-ap]').forEach(inp=>inp.onchange=()=>{
+    aporteAll[owner]=aporteAll[owner]||{}; aporteAll[owner][inp.dataset.ap]=numBR(inp.value); saveAporte(owner);
+  });
+  document.getElementById('apSugerir').onclick=()=>{
+    const total=numBR(document.getElementById('apTotal').value); if(total<=0) return;
+    const gaps={}; let soma=0;
+    APORTE_CLASSES.forEach(c=>{const v=valClasse[c]||0,alvo=alvoClasseAll[owner][c]||0;const g=Math.max(0,alvo*(totalOwner+total)-v);gaps[c]=g;soma+=g;});
+    const s={};
+    if(soma>0) APORTE_CLASSES.forEach(c=>s[c]=Math.round(total*gaps[c]/soma*100)/100);
+    else { const sa=APORTE_CLASSES.reduce((a,c)=>a+(alvoClasseAll[owner][c]||0),0)||1; APORTE_CLASSES.forEach(c=>s[c]=Math.round(total*(alvoClasseAll[owner][c]||0)/sa*100)/100); }
+    aporteAll[owner]=s; saveAporte(owner); renderAporte();
+  };
+  document.getElementById('apCalcular').onclick=calcularAporte;
+}
+function calcularAporte(){
+  const inputs=getAporteInputs();
+  const linhas=[], avisos=[]; let totalAporte=0, totalComprado=0;
+  APORTE_CLASSES.forEach(classe=>{
+    const ap=Number(inputs[classe])||0; if(ap<=0) return;
+    totalAporte+=ap;
+    const assets=(D.posicoes[owner]||[]).filter(r=>r.classe===classe);
+    const baseTotal=assets.reduce((s,r)=>s+r.valor,0), alvoTotal=baseTotal+ap;
+    const alvos=assets.filter(r=>effObj(r.ticker,classe)!=null).sort((a,b)=>effRank(a.ticker,classe)-effRank(b.ticker,classe));
+    if(!alvos.length){ avisos.push([TIPO_LABEL[classe],'sem objetivo definido — aplique o ranking do Suno ou defina manualmente','','']); return; }
+    let rem=ap, compradoClasse=0;
+    alvos.forEach(r=>{
+      const obj=effObj(r.ticker,classe), gap=obj*alvoTotal-r.valor;
+      if(gap<=0) return;
+      if(String(effStatus(r.ticker,classe)).toLowerCase().indexOf('aguard')>=0){
+        avisos.push([TIPO_LABEL[classe], r.ticker+' (Aguardar)', (r.preco>0?fmt0(Math.floor(gap/r.preco))+' cotas':'—'), fmt(gap)]); return;
+      }
+      if(r.preco<=0){ avisos.push([TIPO_LABEL[classe], r.ticker+' — sem cotação','','']); return; }
+      if(rem<=0) return;
+      const qtd=Math.floor(Math.min(gap,rem)/r.preco); if(qtd<=0) return;
+      const custo=qtd*r.preco; rem-=custo; compradoClasse+=custo;
+      linhas.push([TIPO_LABEL[classe], r.ticker, fmt(r.preco), qtd, custo]);
+    });
+    if(compradoClasse<=0) avisos.push([TIPO_LABEL[classe],'nada comprado (classe já no alvo, cotação 0 ou sobra insuficiente)','','']);
+    else if(rem>0.005) avisos.push([TIPO_LABEL[classe],'sobra não alocada','',fmt(rem)]);
+    totalComprado+=compradoClasse;
+  });
+  let h='';
+  if(linhas.length){
+    h+='<table><thead><tr><th>Classe</th><th>Ativo</th><th>Preço</th><th>Qtd a comprar</th><th>Valor estimado</th></tr></thead><tbody>';
+    linhas.forEach(l=>h+=`<tr><td style="text-align:left">${l[0]}</td><td><b>${l[1]}</b></td><td>${l[2]}</td><td><b>${fmt0(l[3])}</b></td><td>${fmt(l[4])}</td></tr>`);
+    h+='</tbody></table>';
+  } else h='<div class="note">Nenhuma compra sugerida com os valores informados.</div>';
+  h+=`<div style="margin-top:10px"><b>Total sugerido: ${fmt(totalComprado)}</b> de ${fmt(totalAporte)} aportado · sobra ${fmt(totalAporte-totalComprado)}</div>`;
+  if(avisos.length){
+    h+='<div style="margin-top:14px;font-weight:700;color:var(--mut)">Avisos</div><table><tbody>';
+    avisos.forEach(a=>h+=`<tr><td style="text-align:left">${a[0]}</td><td style="text-align:left">${a[1]}</td><td>${a[2]}</td><td>${a[3]}</td></tr>`);
+    h+='</tbody></table>';
+  }
+  document.getElementById('apResultado').innerHTML='<h2>Sugestão de compra — '+owner+'</h2>'+h;
+}
+
+/* ====================================================================
+   IRPF
+==================================================================== */
+function renderIRPF(){
+  const irpf=D.irpf, anos=Object.keys(irpf.ganhos).sort();
+  let g='<table><thead><tr><th>Ano</th><th>Ganho realizado</th></tr></thead><tbody>';
+  anos.forEach(a=>{
+    const x=irpf.ganhos[a], inc=x.vendas.some(v=>v.incompleto);
+    g+=`<tr><td>${a}</td><td class="${cls(x.ganho)}">${sig(x.ganho)} ${inc?'<span class="tag warn" title="custo incompleto: bonificação não modelada">⚠ revisar</span>':''}</td></tr>`;
+  });
+  g+='</tbody></table>';
+  let det='<table><thead><tr><th>Data</th><th>Ativo</th><th>Qtd</th><th>Venda</th><th>Custo</th><th>Ganho</th></tr></thead><tbody>';
+  anos.slice().reverse().forEach(a=>irpf.ganhos[a].vendas.forEach(v=>{
+    det+=`<tr><td>${v.data.split('-').reverse().join('/')}</td><td><b>${v.ticker}</b>${v.incompleto?' <span class="warn" title="bonificação não modelada">⚠</span>':''}</td>
+      <td>${fmt0(v.qtd)}</td><td>${fmt(v.valor_venda)}</td><td>${fmt(v.custo)}</td><td class="${cls(v.ganho)}">${sig(v.ganho)}</td></tr>`;
+  }));
+  det+='</tbody></table>';
+  const bens=irpf.bens_atual, ant=irpf.bens_anterior, tks=Object.keys(bens).sort();
+  let bd='<table><thead><tr><th>Ativo</th><th>Qtd</th><th>Custo 31/12/'+(irpf.ano_base-1)+'</th><th>Custo 31/12/'+irpf.ano_base+'</th></tr></thead><tbody>';
+  let totA=0,totB=0;
+  tks.forEach(t=>{
+    const ca=ant[t]?ant[t].custo:0, cb=bens[t].custo; totA+=ca; totB+=cb;
+    bd+=`<tr><td><b>${t}</b></td><td>${fmt0(bens[t].qtd)}</td><td>${ca?fmt(ca):'—'}</td><td>${fmt(cb)}</td></tr>`;
+  });
+  bd+=`</tbody><tfoot><tr><th>${tks.length} bens</th><th></th><th>${fmt(totA)}</th><th>${fmt(totB)}</th></tr></tfoot></table>`;
+  document.getElementById('irpf').innerHTML=`
+    <div class="card"><h2>Ganhos realizados por ano</h2>${g}
+      <div class="note">⚠ "revisar" = ativo vendido com bonificação ainda não modelada (custo aproximado). Os demais usam custo médio com base oficial.</div></div>
+    <div class="card"><h2>Detalhe das vendas</h2><div style="overflow-x:auto">${det}</div></div>
+    <div class="card"><h2>Bens e Direitos (posição em 31/12)</h2><div style="overflow-x:auto">${bd}</div>
+      <div class="note">Custo total declarável: <b>${fmt(totB)}</b> em ${tks.length} ativos (não inclui Renda Fixa).</div></div>`;
+}
+
+/* ====================================================================
+   Persistencia das configuracoes -> Supabase (cfg_*)
+==================================================================== */
+function saveAlvo(o,c,val){ sb.from('cfg_alvo_classe').upsert({owner_uid:UID,titular:o,classe:c,alvo:val},{onConflict:'owner_uid,titular,classe'}).then(()=>{}); }
+function saveObj(o,tk,pct){
+  if(pct==null) sb.from('cfg_objetivos').delete().eq('owner_uid',UID).eq('titular',o).eq('ticker',tk).then(()=>{});
+  else sb.from('cfg_objetivos').upsert({owner_uid:UID,titular:o,ticker:tk,pct:pct},{onConflict:'owner_uid,titular,ticker'}).then(()=>{});
+}
+async function saveSuno(){
+  await sb.from('cfg_suno').delete().eq('owner_uid',UID);
+  const rows=[];
+  ['FIIs','Acoes'].forEach(clz=>Object.keys(suno[clz]).forEach(tk=>{
+    const s=suno[clz][tk]; rows.push({owner_uid:UID,classe:clz,ticker:tk,obj:s.obj,rank:s.rank,status:s.status});
+  }));
+  if(rows.length) await sb.from('cfg_suno').insert(rows);
+}
+async function saveRF(){
+  await sb.from('cfg_renda_fixa').delete().eq('owner_uid',UID);
+  const rows=rfEntries.map(r=>({owner_uid:UID,titulo:r.titulo,valor:Number(r.valor)||0}));
+  if(rows.length) await sb.from('cfg_renda_fixa').insert(rows);
+}
+function saveAporte(o){
+  const a=aporteAll[o]||{};
+  const rows=APORTE_CLASSES.map(c=>({owner_uid:UID,titular:o,classe:c,valor:Number(a[c])||0}));
+  sb.from('cfg_aporte').upsert(rows,{onConflict:'owner_uid,titular,classe'}).then(()=>{});
+}
+
+/* ====================================================================
+   Carregar dados + configuracoes do Supabase, montar D
+==================================================================== */
+function aggOwner(rows){
+  const mes={}, mesEst={}, tk={}; let tot=0,totEst=0,n=0;
+  rows.forEach(p=>{ const v=N(p.valor); if(v<=0) return; n++; const m=String(p.data).slice(0,7);
+    mes[m]=(mes[m]||0)+v; if(p.fonte==='estimado') mesEst[m]=true;
+    tk[p.ticker]=(tk[p.ticker]||0)+v; tot+=v; if(p.fonte==='estimado') totEst+=v;});
+  const por_mes=Object.keys(mes).sort().map(k=>({mes:k,valor:Math.round(mes[k]*100)/100,estimado:!!mesEst[k]}));
+  const por_ticker=Object.keys(tk).map(k=>({ticker:k,valor:Math.round(tk[k]*100)/100})).sort((a,b)=>b.valor-a.valor);
+  return {total:Math.round(tot*100)/100,total_estimado:Math.round(totEst*100)/100,n_lanc:n,por_mes,por_ticker};
+}
+
+async function loadData(){
+  const grab = async (t)=>{ const {data,error}=await sb.from(t).select('*'); if(error) throw error; return data||[]; };
+  const [posR,cotR,provR,bensR,ganhosR,metaR,
+         alvoR,objR,sunoR,rfR,aporteR] = await Promise.all([
+    grab('posicoes'),grab('cotacoes'),grab('proventos'),grab('irpf_bens'),grab('irpf_ganhos'),grab('meta'),
+    grab('cfg_alvo_classe'),grab('cfg_objetivos'),grab('cfg_suno'),grab('cfg_renda_fixa'),grab('cfg_aporte')
+  ]);
+
+  // meta
+  const metaMap={}; metaR.forEach(m=>metaMap[m.chave]=m.valor);
+  const anoBase=Number(metaMap.ano_base)|| (new Date().getFullYear()-1);
+
+  // cotacoes
+  const precoMap={}, fonteMap={};
+  cotR.forEach(c=>{precoMap[c.ticker]=N(c.preco); fonteMap[c.ticker]=c.fonte;});
+
+  // posicoes -> D.posicoes[owner] = [{ticker,classe,qtd,pm,custo,preco,valor,lucro,lucro_pct,fonte_preco}]
+  const posicoes={Consolidado:[],Regis:[],Theo:[]};
+  posR.forEach(p=>{
+    const preco = (precoMap[p.ticker]!=null)?precoMap[p.ticker]:N(p.pm);
+    const qtd=N(p.qtd), custo=N(p.custo), valor=qtd*preco, lucro=valor-custo;
+    (posicoes[p.titular]=posicoes[p.titular]||[]).push({
+      ticker:p.ticker, classe:p.classe, qtd:qtd, pm:N(p.pm), custo:custo,
+      preco:preco, valor:valor, lucro:lucro, lucro_pct: custo?lucro/custo*100:0,
+      fonte_preco: fonteMap[p.ticker]||''
+    });
+  });
+  Object.keys(posicoes).forEach(o=>posicoes[o].sort((a,b)=>b.valor-a.valor));
+
+  // proventos por dono
+  const provByOwner={Consolidado:[],Regis:[],Theo:[]};
+  provR.forEach(p=>{ (provByOwner[p.titular]=provByOwner[p.titular]||[]).push(p); });
+  const proventos={}; OWNERS.forEach(o=>proventos[o]=aggOwner(provByOwner[o]||[]));
+
+  // irpf
+  const bens_atual={}, bens_anterior={};
+  bensR.forEach(b=>{ const o=(b.ano_base===anoBase)?bens_atual:(b.ano_base===anoBase-1?bens_anterior:null);
+    if(o) o[b.ticker]={qtd:N(b.qtd),custo:N(b.custo),pm:N(b.pm)};});
+  const ganhos={};
+  ganhosR.forEach(v=>{ const a=v.ano; (ganhos[a]=ganhos[a]||{vendas:[],ganho:0});
+    ganhos[a].vendas.push({data:v.data,ticker:v.ticker,qtd:N(v.qtd),valor_venda:N(v.valor_venda),
+      custo:N(v.custo),ganho:N(v.ganho),incompleto:!!v.incompleto});
+    ganhos[a].ganho=Math.round((ganhos[a].ganho+N(v.ganho))*100)/100;});
+
+  D={ gerado_em: metaMap.precos_atualizado_em||metaMap.gerado_em||'—',
+      posicoes, proventos, irpf:{ano_base:anoBase,bens_atual,bens_anterior,ganhos} };
+  document.getElementById('gerado').textContent='atualizado em '+D.gerado_em;
+
+  // ---- configuracoes ----
+  alvoClasseAll={}; OWNERS.forEach(o=>alvoClasseAll[o]=Object.assign({},defAlvo));
+  alvoR.forEach(r=>{ if(!alvoClasseAll[r.titular]) alvoClasseAll[r.titular]=Object.assign({},defAlvo);
+    alvoClasseAll[r.titular][r.classe]=N(r.alvo); });
+
+  objManual={}; OWNERS.forEach(o=>objManual[o]={});
+  objR.forEach(r=>{ (objManual[r.titular]=objManual[r.titular]||{})[r.ticker]=N(r.pct); });
+
+  suno={FIIs:{},Acoes:{}};
+  sunoR.forEach(r=>{ if(!suno[r.classe]) suno[r.classe]={};
+    suno[r.classe][r.ticker]={obj:(r.obj==null?null:N(r.obj)), rank:N(r.rank), status:r.status||''}; });
+  sunoTxt={FIIs:LSget('suno_fiis_txt',''),Acoes:LSget('suno_acoes_txt','')};
+
+  rfEntries=rfR.map(r=>({titulo:r.titulo,valor:N(r.valor)}));
+
+  aporteAll={}; OWNERS.forEach(o=>aporteAll[o]={});
+  aporteR.forEach(r=>{ (aporteAll[r.titular]=aporteAll[r.titular]||{})[r.classe]=N(r.valor); });
+}
+
+/* ====================================================================
+   UI init (tabs, seletor de visao, tipos, painel Suno)
+==================================================================== */
+function buildTabs(){
+  document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));
+    ['dash','pos','prov','irpf'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==t.dataset.t));
+    document.getElementById('ownerSel').parentElement.style.visibility = (t.dataset.t==='irpf')?'hidden':'visible';
+  });
+}
+function initPosUI(){
+  const ft=document.getElementById('posTipos'); ft.innerHTML='';
+  CLASSES.forEach(c=>{
+    const b=document.createElement('div'); b.className='fbtn'+(c===posTipo?' on':''); b.textContent=TIPO_LABEL[c];
+    b.onclick=()=>{posTipo=c;document.querySelectorAll('#posTipos .fbtn').forEach(x=>x.classList.toggle('on',x===b));renderPos();};
+    ft.appendChild(b);
+  });
+  const fd=document.getElementById('ownerSel'); fd.innerHTML='';
+  OWNERS.forEach(v=>{
+    const b=document.createElement('div'); b.className='fbtn'+(v===owner?' on':''); b.textContent=v;
+    b.onclick=()=>{owner=v;document.querySelectorAll('#ownerSel .fbtn').forEach(x=>x.classList.toggle('on',x===b));recalc();};
+    fd.appendChild(b);
+  });
+  document.getElementById('sunoFIIs').value=sunoTxt.FIIs;
+  document.getElementById('sunoAcoes').value=sunoTxt.Acoes;
+  const showResumo=(novo)=>{
+    const el=document.getElementById('sunoStatus');
+    if(!Object.keys(suno.FIIs).length && !Object.keys(suno.Acoes).length){ el.innerHTML=''; return; }
+    el.innerHTML=(novo?'✓ Ranking aplicado.<br>':'')+resumoSuno();
+  };
+  showResumo(false);
+  document.getElementById('sunoAplicar').onclick=async()=>{
+    sunoTxt.FIIs=document.getElementById('sunoFIIs').value;
+    sunoTxt.Acoes=document.getElementById('sunoAcoes').value;
+    suno.FIIs=extrairRanking(sunoTxt.FIIs);
+    suno.Acoes=extrairRanking(sunoTxt.Acoes);
+    LSset('suno_fiis_txt',sunoTxt.FIIs);LSset('suno_acoes_txt',sunoTxt.Acoes);
+    await saveSuno();
+    showResumo(true); renderPos();
+  };
+}
+
+/* ====================================================================
+   Boot: autenticacao (Google) -> carregar -> renderizar
+==================================================================== */
+function showLogin(msg){
+  document.getElementById('gate').classList.add('hide');
+  document.getElementById('login').classList.remove('hide');
+  if(msg) document.getElementById('loginMsg').textContent=msg;
+  document.getElementById('btnLogin').onclick=()=>{
+    sb.auth.signInWithOAuth({provider:'google', options:{redirectTo: location.href.split('#')[0].split('?')[0]}});
+  };
+}
+async function startApp(){
+  document.getElementById('login').classList.add('hide');
+  document.getElementById('gate').classList.remove('hide');
+  try{
+    await loadData();
+  }catch(e){
+    document.getElementById('gate').innerHTML='Erro ao carregar do Supabase: '+(e.message||e)+'<br><span class="sub">Verifique se o schema.sql foi aplicado e se você tem dados (seed).</span>';
+    return;
+  }
+  buildTabs(); initPosUI(); recalc(); renderIRPF();
+  document.getElementById('gate').classList.add('hide');
+  document.getElementById('app').classList.remove('hide');
+}
+async function boot(){
+  if(!window.SUPA_CONFIG || !window.supabase){
+    document.getElementById('gate').textContent='Falta config.js ou o cliente Supabase.'; return;
+  }
+  sb=window.supabase.createClient(window.SUPA_CONFIG.url, window.SUPA_CONFIG.anonKey);
+  document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
+  const {data}=await sb.auth.getSession();
+  if(!data.session){ showLogin(); return; }
+  UID=data.session.user.id;
+  await startApp();
+}
+boot();
+</script>
+</body>
+</html>
