@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.9.0 · 2026-06-23</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.9.1 · 2026-06-23</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -982,16 +982,19 @@ async function startApp(session){
 function renderImport(){
   const el=document.getElementById('importBox'); if(!el) return;
   el.innerHTML=`
-    <div class="note">Suba uma <b>nota de corretagem (.pdf)</b> para lançar os negócios (com taxas reais) e recalcular o PM. A <b>posição consolidada da B3 (.xlsx)</b> serve para <b>conferir as quantidades</b> (ex.: no fim do ano) — ela não altera o PM. O Raspberry processa em segundos e o painel se atualiza.</div>
+    <div class="note">Suba uma <b>nota de corretagem (.pdf)</b> (B3) ou uma <b>confirmação da Avenue (.pdf)</b> (EUA, em US$) para lançar os negócios com taxas reais e recalcular o PM. A <b>posição consolidada da B3 (.xlsx)</b> serve para <b>conferir as quantidades</b> — não altera o PM. O Raspberry processa em segundos e o painel se atualiza.</div>
     <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:14px">
       <div><div class="sub" style="margin-bottom:6px">Posição consolidada B3 (.xlsx) — conferência</div>
         <input type="file" id="impB3" accept=".xlsx"> <span class="fbtn on" id="impB3btn" style="border:none;cursor:pointer">Conferir</span></div>
       <div><div class="sub" style="margin-bottom:6px">Nota de corretagem (.pdf)</div>
         <input type="file" id="impNota" accept=".pdf"> <span class="fbtn" id="impNotabtn" style="cursor:pointer">Enviar</span></div>
+      <div><div class="sub" style="margin-bottom:6px">🇺🇸 Confirmação Avenue (.pdf) — em US$</div>
+        <input type="file" id="impAve" accept=".pdf"> <span class="fbtn" id="impAvebtn" style="cursor:pointer">Enviar</span></div>
     </div>
     <div class="note" id="impStatus" style="margin-top:12px"></div>`;
   document.getElementById('impB3btn').onclick=()=>enviarImport('b3', document.getElementById('impB3'));
   document.getElementById('impNotabtn').onclick=()=>enviarImport('nota', document.getElementById('impNota'));
+  document.getElementById('impAvebtn').onclick=()=>enviarImport('avenue', document.getElementById('impAve'));
 }
 function renderStocksForm(){
   const el=document.getElementById('stkForm'); if(!el) return;
