@@ -9,7 +9,7 @@
     --bg:#0f1422; --card:#171f33; --card2:#1f2942; --line:#2a3553;
     --txt:#e8edf7; --mut:#8b97b3; --accent:#5b8cff;
     --pos:#3ddc97; --neg:#ff6b7d;
-    --c-acoes:#5b8cff; --c-fiis:#3ddc97; --c-stocks:#ffb454; --c-rf:#9b7bff;
+    --c-acoes:#5b8cff; --c-fiis:#3ddc97; --c-stocks:#ffb454; --c-rf:#9b7bff; --c-us:#ff7eb6;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -140,12 +140,18 @@
       <summary style="cursor:pointer;color:var(--mut);font-weight:700">📥 Importar extrato B3 / notas de corretagem</summary>
       <div id="importBox" style="margin-top:14px"></div>
     </details>
+    <details class="card" id="stocksPanel">
+      <summary style="cursor:pointer;color:var(--mut);font-weight:700">🇺🇸 Lançar ativo do exterior (Stocks / Avenue)</summary>
+      <div class="note" style="margin-top:12px">Negócios em <b>US$</b> (Avenue). Vão para o mesmo ledger; o PM é em dólar e o painel converte p/ R$ pelo câmbio. Após salvar, o Raspberry recalcula as posições.</div>
+      <div id="stkForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:14px"></div>
+      <div class="note" id="stkStatus" style="margin-top:12px"></div>
+    </details>
   </section>
 </div>
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.8.1 · 2026-06-23</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.9.0 · 2026-06-23</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -153,10 +159,11 @@
 /* ====================================================================
    Estado e helpers
 ==================================================================== */
-const CLASSE_COR = {Acoes:'var(--c-acoes)',FIIs:'var(--c-fiis)',ETF:'var(--c-stocks)','Renda Fixa':'var(--c-rf)'};
-const CLASSES = ['Acoes','FIIs','ETF','Renda Fixa'];
-const TIPO_LABEL = {Acoes:'Ação',FIIs:'FII',ETF:'ETF','Renda Fixa':'Renda Fixa'};
+const CLASSE_COR = {Acoes:'var(--c-acoes)',FIIs:'var(--c-fiis)',ETF:'var(--c-stocks)',Stocks:'var(--c-us)','Renda Fixa':'var(--c-rf)'};
+const CLASSES = ['Acoes','FIIs','ETF','Stocks','Renda Fixa'];
+const TIPO_LABEL = {Acoes:'Ação',FIIs:'FII',ETF:'ETF',Stocks:'Stocks','Renda Fixa':'Renda Fixa'};
 const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtU = v => 'US$ ' + (v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmt0 = v => (v||0).toLocaleString('pt-BR',{maximumFractionDigits:0});
 const pct = v => (v||0).toFixed(1)+'%';
 const cls = v => v>0?'pos':(v<0?'neg':'');
@@ -169,9 +176,10 @@ const numBR=v=>parseFloat(String(v).replace(',','.'))||0;
 const N=v=>Number(v)||0;
 
 const OWNERS=['Consolidado','Regis','Theo'];
-const defAlvo={Acoes:.25,FIIs:.30,ETF:.20,'Renda Fixa':.25};
+const defAlvo={Acoes:.20,FIIs:.25,ETF:.15,Stocks:.15,'Renda Fixa':.25};
 
 let sb=null, UID=null;
+let D_fxUSD=0;              // cambio do dolar (R$ por US$1), de cotacoes.USDBRL
 let D=null;                 // {gerado_em, posicoes:{owner:[...]}, proventos:{owner:{...}}, irpf:{...}}
 let owner='Consolidado';
 let alvoClasseAll={};       // {owner:{classe:alvo}}
@@ -244,7 +252,7 @@ function donut(items){
 /* ====================================================================
    Graficos de proventos (SVG, sem libs)
 ==================================================================== */
-const PROV_ORDEM=['FIIs','Acoes'];  // ETF nao distribui proventos -> fora da aba
+const PROV_ORDEM=['FIIs','Acoes','Stocks'];  // ETF nao distribui proventos -> fora da aba
 function niceTicks(max,target){
   target=target||4;
   if(!(max>0)) return {max:1,step:1,ticks:[0,1]};
@@ -313,7 +321,7 @@ function chartProvRanking(rows){
 ==================================================================== */
 let valClasse={}, totalGeral=0;
 function recalc(){
-  valClasse={Acoes:0,FIIs:0,ETF:0,'Renda Fixa':0};
+  valClasse={Acoes:0,FIIs:0,ETF:0,Stocks:0,'Renda Fixa':0};
   (D.posicoes[owner]||[]).forEach(p=>{if(valClasse[p.classe]!=null)valClasse[p.classe]+=p.valor;});
   valClasse['Renda Fixa']=(owner==='Theo')?0:rfEntries.reduce((s,r)=>s+(Number(r.valor)||0),0);
   totalGeral=CLASSES.reduce((s,c)=>s+valClasse[c],0);
@@ -399,7 +407,10 @@ function renderPos(){
       +(marcado?' <span class="tag" style="background:var(--c-rf);color:#fff">Vender</span>':'');
     const vmark=` <span data-vd="${r.ticker}" title="marcar/desmarcar p/ vender" style="cursor:pointer;opacity:${marcado?1:.3}">🔖</span>`;
     const luc = r.preco>0 ? (r.preco>=r.pm?'var(--pos)':'var(--neg)') : 'var(--txt)';
-    const precoCell=`<td><div style="font-weight:700;color:${luc}">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">PM ${fmt(r.pm)}</div></td>`;
+    const isU = r.moeda==='USD';
+    const precoCell = isU
+      ? `<td><div style="font-weight:700;color:${luc}">${fmtU(r.preco_nat)}</div><div class="sub" style="font-size:11px">PM ${fmtU(r.pm_nat)}</div></td>`
+      : `<td><div style="font-weight:700;color:${luc}">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">PM ${fmt(r.pm)}</div></td>`;
     const objCells = showObj ? `<td><input data-tk="${r.ticker}" value="${obj!=null?(obj*100).toFixed(1):''}" placeholder="—" title="${manual?'manual (sobrescreve Suno)':'Suno'}" style="width:54px;text-align:right;background:var(--card2);color:${manual?'var(--c-stocks)':'var(--txt)'};border:1px solid var(--line);border-radius:5px;padding:1px 4px">%</td>`
       +`<td class="${dif!=null?cls(dif):''}">${dif!=null?(dif>0?'+':'')+dif.toFixed(1)+'%':'—'}</td>` : '';
     h+=`<tr>
@@ -412,7 +423,9 @@ function renderPos(){
       <td>${pct(atual*100)}</td>${objCells}</tr>`;
   });
   h+='</table>';
-  let foot=`Preço: cotação atual (verde=acima do PM, vermelho=abaixo) e PM embaixo`;
+  let foot = posTipo==='Stocks'
+    ? `Preço/PM em <b>US$</b>; Valor/Custo/L-P convertidos p/ <b>R$</b> ao câmbio ${D_fxUSD?('R$ '+D_fxUSD.toFixed(4)+'/US$'):'(sem cotação)'}`
+    : `Preço: cotação atual (verde=acima do PM, vermelho=abaixo) e PM embaixo`;
   if(showObj) foot+=` · ${somaChip('Soma dos objetivos', somaObj)}`;
   if(sunoLoaded) foot+=` · <span class="warn">Aguardar</span> = viés Suno · <span class="neg">Fora</span> = fora do ranking`;
   if(showObj) foot+=` · Objetivo editável (manual sobrescreve o Suno; vazio = volta ao Suno) · clique em "Objetivo" p/ ordenar por ranking`;
@@ -495,7 +508,7 @@ function resumoSuno(){
 /* ====================================================================
    PROVENTOS
 ==================================================================== */
-const PROV_FILTROS={Tudo:['FIIs','Acoes'],FIIs:['FIIs'],'Ações':['Acoes']};
+const PROV_FILTROS={Tudo:['FIIs','Acoes','Stocks'],FIIs:['FIIs'],'Ações':['Acoes'],Stocks:['Stocks']};
 let provFiltro='Tudo', provAno='Tudo';
 function renderProv(){
   const p=D.proventos[owner]||{cells:[],anos:[]};
@@ -504,7 +517,7 @@ function renderProv(){
   // filtro ano + classe sobre as celulas
   const cellsF=p.cells.filter(c=>(provAno==='Tudo'||c.ano===provAno) && sel.has(c.classe));
   // por mes (garante as classes p/ o chart)
-  const blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0}});
+  const blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0},Stocks:{real:0,est:0}});
   const mesMap={};
   cellsF.forEach(c=>{const m=mesMap[c.mes]=mesMap[c.mes]||blankCls(); m[c.classe].real+=c.real; m[c.classe].est+=c.est;});
   let por_mes=Object.keys(mesMap).sort().map(k=>({mes:k,cls:mesMap[k]}));
@@ -591,14 +604,15 @@ function renderMov(){
       <th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
   rows.forEach(r=>{
     const cor=EVENTO_COR[r.evento]||'var(--txt)';
+    const isU=r.moeda==='USD', money=v=>isU?fmtU(v):fmt(v), strip=v=>money(v).replace(isU?'US$ ':'R$ ','');
     t+=`<tr>
-      <td>${fmtD(r.data)}</td><td><b>${r.ativo}</b></td>
+      <td>${fmtD(r.data)}</td><td><b>${r.ativo}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
       <td style="color:${cor}">${r.evento}</td><td>${r.titular||''}</td>
       <td class="sub">${r.corretora||''}</td>
       <td style="text-align:right">${fmt0(N(r.qtd))}</td>
-      <td style="text-align:right">${N(r.preco)?fmt(N(r.preco)).replace('R$ ',''):'—'}</td>
-      <td style="text-align:right" class="sub">${movTaxas(r)?fmt(movTaxas(r)).replace('R$ ',''):'—'}</td>
-      <td style="text-align:right">${fmt(movTotal(r))}</td>
+      <td style="text-align:right">${N(r.preco)?strip(N(r.preco)):'—'}</td>
+      <td style="text-align:right" class="sub">${movTaxas(r)?strip(movTaxas(r)):'—'}</td>
+      <td style="text-align:right">${money(movTotal(r))}</td>
       <td class="sub">${r.fonte==='nota'?'📄 nota':(r.fonte==='seed'?'histórico':r.fonte||'')}</td></tr>`;
   });
   t+='</tbody></table>';
@@ -728,10 +742,13 @@ function renderIRPF(){
   det+='</tbody></table>';
   const bens=irpf.bens_atual, ant=irpf.bens_anterior, tks=Object.keys(bens).sort();
   let bd='<table><thead><tr><th>Ativo</th><th>Qtd</th><th>Custo 31/12/'+(irpf.ano_base-1)+'</th><th>Custo 31/12/'+irpf.ano_base+'</th></tr></thead><tbody>';
-  let totA=0,totB=0;
+  let totA=0,totB=0,temUSD=false;
   tks.forEach(t=>{
-    const ca=ant[t]?ant[t].custo:0, cb=bens[t].custo; totA+=ca; totB+=cb;
-    bd+=`<tr><td><b>${t}</b></td><td>${fmt0(bens[t].qtd)}</td><td>${ca?fmt(ca):'—'}</td><td>${fmt(cb)}</td></tr>`;
+    const isU=bens[t].moeda==='USD', aU=ant[t]&&ant[t].moeda==='USD'; if(isU)temUSD=true;
+    const ca=ant[t]?ant[t].custo:0, cb=bens[t].custo;
+    totA+=aU?ca*(D_fxUSD||1):ca; totB+=isU?cb*(D_fxUSD||1):cb;
+    const fa=ca?(aU?fmtU(ca):fmt(ca)):'—', fb=isU?fmtU(cb):fmt(cb);
+    bd+=`<tr><td><b>${t}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td><td>${fmt0(bens[t].qtd)}</td><td>${fa}</td><td>${fb}</td></tr>`;
   });
   bd+=`</tbody><tfoot><tr><th>${tks.length} bens</th><th></th><th>${fmt(totA)}</th><th>${fmt(totB)}</th></tr></tfoot></table>`;
   document.getElementById('irpf').innerHTML=`
@@ -739,7 +756,7 @@ function renderIRPF(){
       <div class="note">⚠ "revisar" = ativo vendido com bonificação ainda não modelada (custo aproximado). Os demais usam custo médio com base oficial.</div></div>
     <div class="card"><h2>Detalhe das vendas</h2><div style="overflow-x:auto">${det}</div></div>
     <div class="card"><h2>Bens e Direitos (posição em 31/12)</h2><div style="overflow-x:auto">${bd}</div>
-      <div class="note">Custo total declarável: <b>${fmt(totB)}</b> em ${tks.length} ativos (não inclui Renda Fixa).</div></div>`;
+      <div class="note">Custo total declarável: <b>${fmt(totB)}</b> em ${tks.length} ativos (não inclui Renda Fixa).${temUSD?' <span class="warn">Exterior (US$) convertido ao câmbio atual (aprox.); ganhos de capital do exterior e câmbio por data ainda não modelados.</span>':''}</div></div>`;
 }
 
 /* ====================================================================
@@ -779,9 +796,10 @@ function saveAporte(o){
 function aggOwner(rows){
   // celulas agregadas por (ticker, mes); renderProv filtra por ano/classe a partir daqui
   const cell={};
-  rows.forEach(p=>{ const v=N(p.valor); if(v<=0) return;
+  rows.forEach(p=>{ let v=N(p.valor); if(v<=0) return;
+    if(p.moeda==='USD') v*=(D_fxUSD||1);          // proventos do exterior -> BRL
     const m=String(p.data).slice(0,7);
-    const c=(p.classe==='FIIs')?'FIIs':'Acoes';  // ETF/outros caem em Acoes (renda variavel)
+    const c=(p.classe==='FIIs')?'FIIs':(p.classe==='Stocks')?'Stocks':'Acoes';
     const fld=p.fonte==='estimado'?'est':'real';
     const k=p.ticker+'|'+m;
     const e=cell[k]=cell[k]||{mes:m,ano:m.slice(0,4),ticker:p.ticker,classe:c,real:0,est:0};
@@ -812,22 +830,28 @@ async function loadData(){
   const metaMap={}; metaR.forEach(m=>metaMap[m.chave]=m.valor);
   const anoBase=Number(metaMap.ano_base)|| (new Date().getFullYear()-1);
 
-  // cotacoes
+  // cotacoes (+ cambio do dolar para ativos em USD)
   const precoMap={}, fonteMap={};
   cotR.forEach(c=>{precoMap[c.ticker]=N(c.preco); fonteMap[c.ticker]=c.fonte;});
+  const fxUSD = precoMap['USDBRL'] || 0;   // R$ por US$ 1 (0 = sem cotacao de cambio ainda)
 
-  // posicoes -> D.posicoes[owner] = [{ticker,classe,qtd,pm,custo,preco,valor,lucro,lucro_pct,fonte_preco}]
+  // posicoes -> valores em BRL (somatorios/alocacao); nativo (USD) guardado p/ exibir
   const posicoes={Consolidado:[],Regis:[],Theo:[]};
   posR.forEach(p=>{
-    const preco = (precoMap[p.ticker]!=null)?precoMap[p.ticker]:N(p.pm);
-    const qtd=N(p.qtd), custo=N(p.custo), valor=qtd*preco, lucro=valor-custo;
+    const usd=(p.moeda==='USD'), fx = usd ? (fxUSD||1) : 1;
+    const preco = (precoMap[p.ticker]!=null)?precoMap[p.ticker]:N(p.pm);  // nativo
+    const qtd=N(p.qtd), custo=N(p.custo);                                  // nativos
+    const valorNat=qtd*preco, lucroNat=valorNat-custo;
     (posicoes[p.titular]=posicoes[p.titular]||[]).push({
-      ticker:p.ticker, classe:p.classe, qtd:qtd, pm:N(p.pm), custo:custo,
-      preco:preco, valor:valor, lucro:lucro, lucro_pct: custo?lucro/custo*100:0,
+      ticker:p.ticker, classe:p.classe, moeda:(p.moeda||'BRL'), fx:fx, qtd:qtd,
+      pm:N(p.pm)*fx, custo:custo*fx, preco:preco*fx, valor:valorNat*fx, lucro:lucroNat*fx,
+      lucro_pct: custo?lucroNat/custo*100:0,
+      pm_nat:N(p.pm), custo_nat:custo, preco_nat:preco, valor_nat:valorNat,  // USD p/ exibicao
       fonte_preco: fonteMap[p.ticker]||''
     });
   });
   Object.keys(posicoes).forEach(o=>posicoes[o].sort((a,b)=>b.valor-a.valor));
+  D_fxUSD = fxUSD;
 
   // proventos por dono
   const provByOwner={Consolidado:[],Regis:[],Theo:[]};
@@ -837,7 +861,7 @@ async function loadData(){
   // irpf
   const bens_atual={}, bens_anterior={};
   bensR.forEach(b=>{ const o=(b.ano_base===anoBase)?bens_atual:(b.ano_base===anoBase-1?bens_anterior:null);
-    if(o) o[b.ticker]={qtd:N(b.qtd),custo:N(b.custo),pm:N(b.pm)};});
+    if(o) o[b.ticker]={qtd:N(b.qtd),custo:N(b.custo),pm:N(b.pm),moeda:(b.moeda||'BRL')};});
   const ganhos={};
   ganhosR.forEach(v=>{ const a=v.ano; (ganhos[a]=ganhos[a]||{vendas:[],ganho:0});
     ganhos[a].vendas.push({data:v.data,ticker:v.ticker,qtd:N(v.qtd),valor_venda:N(v.valor_venda),
@@ -848,7 +872,7 @@ async function loadData(){
       refresh_iso: metaMap.refresh_em_iso||null, refresh_status: metaMap.refresh_status||'', refresh_msg: metaMap.refresh_msg||'',
       suno_iso: metaMap.suno_atualizado_em||null, suno_status: metaMap.suno_status||'',
       posicoes, proventos, irpf:{ano_base:anoBase,bens_atual,bens_anterior,ganhos} };
-  document.getElementById('gerado').textContent='atualizado em '+D.gerado_em;
+  document.getElementById('gerado').textContent='atualizado em '+D.gerado_em+(D_fxUSD?(' · dólar R$ '+D_fxUSD.toFixed(2)):'');
   renderPiStatus(); renderSunoStatus();
 
   // ---- configuracoes ----
@@ -942,7 +966,7 @@ async function startApp(session){
   try{
     diag('UID='+UID);
     diag('lendo tabelas…'); await loadData(); diag('tabelas ok');
-    diag('renderizando…'); buildTabs(); initPosUI(); renderImport(); recalc(); renderIRPF(); renderMov(); diag('render ok');
+    diag('renderizando…'); buildTabs(); initPosUI(); renderImport(); renderStocksForm(); recalc(); renderIRPF(); renderMov(); diag('render ok');
   }catch(e){
     diag('❌ ERRO: '+(e&&(e.message||e.code||JSON.stringify(e))||e));
     document.getElementById('gate').innerHTML='Erro ao carregar: '+(e&&(e.message||e)||e)+'<br><span class="sub">Veja o box de diagnóstico embaixo.</span>';
@@ -968,6 +992,40 @@ function renderImport(){
     <div class="note" id="impStatus" style="margin-top:12px"></div>`;
   document.getElementById('impB3btn').onclick=()=>enviarImport('b3', document.getElementById('impB3'));
   document.getElementById('impNotabtn').onclick=()=>enviarImport('nota', document.getElementById('impNota'));
+}
+function renderStocksForm(){
+  const el=document.getElementById('stkForm'); if(!el) return;
+  const I='background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:13px';
+  const L=(t,inner)=>`<label style="font-size:11px;color:var(--mut)">${t}<br>${inner}</label>`;
+  const hoje=new Date().toISOString().slice(0,10);
+  el.innerHTML=
+     L('Data', `<input type="date" id="stkData" value="${hoje}" style="${I}">`)
+    +L('Ticker', `<input id="stkTk" placeholder="AAPL" style="${I};width:90px;text-transform:uppercase">`)
+    +L('Evento', `<select id="stkEv" style="${I}"><option>Compra</option><option>Venda</option></select>`)
+    +L('Titular', `<select id="stkTit" style="${I}"><option>Regis</option><option>Theo</option></select>`)
+    +L('Qtd', `<input id="stkQtd" type="number" step="any" style="${I};width:80px">`)
+    +L('Preço US$', `<input id="stkPx" type="number" step="any" style="${I};width:100px">`)
+    +L('Taxa US$', `<input id="stkFee" type="number" step="any" value="0" style="${I};width:80px">`)
+    +`<button id="stkSave" class="fbtn on" style="border:none;cursor:pointer">Salvar</button>`;
+  document.getElementById('stkSave').onclick=salvarStock;
+}
+async function salvarStock(){
+  const st=document.getElementById('stkStatus'), g=id=>document.getElementById(id);
+  const tk=String(g('stkTk').value||'').trim().toUpperCase();
+  const qtd=numBR(g('stkQtd').value), px=numBR(g('stkPx').value), fee=numBR(g('stkFee').value), data=g('stkData').value;
+  if(!tk||!data||qtd<=0||px<=0){ st.style.color='var(--neg)'; st.textContent='Preencha ticker, data, quantidade e preço.'; return; }
+  st.style.color='var(--mut)'; st.textContent='Salvando…';
+  try{
+    const row={owner_uid:UID, data:data, ativo:tk, evento:g('stkEv').value, corretora:'Avenue',
+      titular:g('stkTit').value, qtd:qtd, preco:px, corretagem:fee, moeda:'USD', fonte:'manual', obs:''};
+    const r=await sb.from('movimentacao').insert(row); if(r.error) throw r.error;
+    const ins=await sb.from('import_jobs').insert(
+      {owner_uid:UID, tipo:'recompute', arquivo_path:'', status:'pendente'}).select('id').single();
+    if(ins.error) throw ins.error;
+    st.textContent='Lançado! Recalculando no Raspberry… (job '+ins.data.id+')';
+    ['stkTk','stkQtd','stkPx'].forEach(i=>g(i).value=''); g('stkFee').value='0';
+    pollImport(ins.data.id, st, 0);
+  }catch(e){ st.style.color='var(--neg)'; st.textContent='Erro: '+(e.message||e); }
 }
 async function enviarImport(tipo, inp){
   const st=document.getElementById('impStatus');
