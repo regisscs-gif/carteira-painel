@@ -145,7 +145,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.6.0 · 2026-06-18</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.7.0 · 2026-06-22</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -239,6 +239,67 @@ function donut(items){
   });
   return `<svg viewBox="0 0 180 180" width="180" height="180">${arcs}
     <circle r="52" cx="90" cy="90" fill="var(--card)"/></svg>`;
+}
+
+/* ====================================================================
+   Graficos de proventos (SVG, sem libs)
+==================================================================== */
+const PROV_ORDEM=['FIIs','Acoes','ETF'];
+function niceTicks(max,target){
+  target=target||4;
+  if(!(max>0)) return {max:1,step:1,ticks:[0,1]};
+  const raw=max/target, mag=Math.pow(10,Math.floor(Math.log10(raw))), norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const nmax=Math.ceil(max/step)*step, ticks=[];
+  for(let v=0;v<=nmax+1e-9;v+=step) ticks.push(v);
+  return {max:nmax,step,ticks};
+}
+const fmtK=v=> v>=1000?(v/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})+'K':String(Math.round(v||0));
+
+// barras empilhadas por mes; cor=classe, faixa clara=estimado. sel=Set de classes.
+function chartProvMensal(meses,sel){
+  if(!meses.length) return '<div class="sub" style="margin-top:8px">Sem proventos no período.</div>';
+  const PL=46, PR=12, PT=10, PB=36, H=216, barW=24, gap=10;
+  const tot=m=>PROV_ORDEM.reduce((s,c)=>sel.has(c)?s+m.cls[c].real+m.cls[c].est:s,0);
+  const nt=niceTicks(Math.max(...meses.map(tot),1),4);
+  const plotH=H-PT-PB, W=PL+gap+meses.length*(barW+gap)+PR;
+  const y=v=>PT+plotH*(1-v/nt.max);
+  let g='';
+  nt.ticks.forEach(t=>{const yy=y(t);
+    g+=`<line x1="${PL}" y1="${yy}" x2="${W-PR}" y2="${yy}" stroke="var(--line)"/>`;
+    g+=`<text x="${PL-6}" y="${yy+3}" text-anchor="end" font-size="9" fill="var(--mut)">${fmtK(t)}</text>`;});
+  meses.forEach((m,i)=>{
+    const x=PL+gap+i*(barW+gap); let yc=y(0);
+    PROV_ORDEM.forEach(c=>{ if(!sel.has(c)) return; const seg=m.cls[c];
+      [['real',1],['est',.4]].forEach(([k,op])=>{ const v=seg[k]; if(v<=0) return;
+        const h=plotH*v/nt.max; yc-=h;
+        g+=`<rect x="${x}" y="${yc}" width="${barW}" height="${h}" fill="${CLASSE_COR[c]}" fill-opacity="${op}"><title>${m.mes} · ${TIPO_LABEL[c]}${k==='est'?' (estimado)':''}: ${fmt(v)}</title></rect>`;});});
+    const [Y,Mo]=m.mes.split('-'), cx=x+barW/2;
+    g+=`<text x="${cx}" y="${H-PB+14}" text-anchor="end" font-size="9" fill="var(--mut)" transform="rotate(-45 ${cx} ${H-PB+14})">${Mo}/${Y.slice(2)}</text>`;});
+  return `<div style="overflow-x:auto;margin-top:8px"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${g}</svg></div>`;
+}
+
+// ranking horizontal por ativo (decrescente); rows ja filtradas por classe.
+function chartProvRanking(rows){
+  rows=rows.filter(r=>r.valor>0);
+  if(!rows.length) return '<div class="sub">Sem proventos no filtro.</div>';
+  const PL=64, PR=46, PT=22, rowH=16, gap=5, H=PT+rows.length*(rowH+gap)+6;
+  const nt=niceTicks(Math.max(...rows.map(r=>r.valor),1),5);
+  const plotW=560, W=PL+plotW+PR;
+  const X=v=>PL+plotW*v/nt.max;
+  let g='';
+  nt.ticks.forEach(t=>{const xx=X(t);
+    g+=`<line x1="${xx}" y1="${PT}" x2="${xx}" y2="${H-4}" stroke="var(--line)"/>`;
+    g+=`<text x="${xx}" y="${PT-6}" text-anchor="middle" font-size="9" fill="var(--mut)">${fmtK(t)}</text>`;});
+  rows.forEach((r,i)=>{ const yy=PT+i*(rowH+gap);
+    g+=`<text x="${PL-6}" y="${yy+rowH/2+3}" text-anchor="end" font-size="10" fill="var(--txt)">${r.ticker}</text>`;
+    let xc=PL;
+    [['real',1],['est',.4]].forEach(([k,op])=>{ const v=r[k]; if(v<=0) return;
+      const w=plotW*v/nt.max;
+      g+=`<rect x="${xc}" y="${yy}" width="${w}" height="${rowH}" rx="2" fill="${CLASSE_COR[r.classe]}" fill-opacity="${op}"><title>${r.ticker}${k==='est'?' (estimado)':''}: ${fmt(v)}</title></rect>`;
+      xc+=w;});
+    g+=`<text x="${xc+4}" y="${yy+rowH/2+3}" font-size="9" fill="var(--mut)">${fmtK(r.valor)}</text>`;});
+  return `<div style="overflow-x:auto"><svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:${Math.round(W*0.7)}px;max-width:${W}px">${g}</svg></div>`;
 }
 
 /* ====================================================================
@@ -428,36 +489,40 @@ function resumoSuno(){
 /* ====================================================================
    PROVENTOS
 ==================================================================== */
+const PROV_FILTROS={Tudo:['FIIs','Acoes','ETF'],FIIs:['FIIs'],'Ações':['Acoes'],ETF:['ETF']};
+let provFiltro='Tudo';
 function renderProv(){
   const p=D.proventos[owner]||{por_mes:[],por_ticker:[],total:0,total_estimado:0,n_lanc:0};
-  const meses=p.por_mes.slice(-24);
-  const max=Math.max(...meses.map(m=>m.valor),1);
-  let bars='<div style="display:flex;align-items:flex-end;gap:3px;height:160px;overflow-x:auto">';
-  meses.forEach(m=>{
-    const hpx=Math.round(m.valor/max*150)+2;
-    const cor=m.estimado?'var(--c-stocks)':'var(--c-fiis)';
-    bars+=`<div title="${m.mes}: ${fmt(m.valor)}${m.estimado?' (estimado)':''}" style="flex:1;min-width:14px;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
-      <div style="height:${hpx}px;background:${cor};border-radius:4px 4px 0 0"></div></div>`;
-  });
-  bars+='</div><div class="sub" style="margin-top:6px">'+(meses[0]?meses[0].mes:'')+' → '+(meses.length?meses[meses.length-1].mes:'')
-    +' · <span class="pill" style="background:var(--c-fiis)"></span>real <span class="pill" style="background:var(--c-stocks)"></span>estimado (Yahoo)</div>';
-  const ult12=p.por_mes.slice(-12).reduce((s,m)=>s+m.valor,0);
-  let top='<table><thead><tr><th>Ativo</th><th>Recebido</th></tr></thead><tbody>';
-  p.por_ticker.slice(0,25).forEach(t=>top+=`<tr><td><b>${t.ticker}</b></td><td>${fmt(t.valor)}</td></tr>`);
-  top+='</tbody></table>';
-  const est=p.total_estimado||0;
-  const estBox = est>0
-    ? `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn">${fmt(est)}</div></div>`
+  const selArr=PROV_FILTROS[provFiltro]||PROV_FILTROS.Tudo, sel=new Set(selArr);
+  const mesVal=m=>PROV_ORDEM.reduce((s,c)=>sel.has(c)?s+m.cls[c].real+m.cls[c].est:s,0);
+  const tickF=p.por_ticker.filter(t=>sel.has(t.classe));
+  const totalF=tickF.reduce((s,t)=>s+t.valor,0);
+  const estF=tickF.reduce((s,t)=>s+t.est,0);
+  const ult12=p.por_mes.slice(-12).reduce((s,m)=>s+mesVal(m),0);
+  const mesesF=p.por_mes.slice(-24);
+  const btns=Object.keys(PROV_FILTROS).map(k=>`<button class="fbtn${k===provFiltro?' on':''}" data-pf="${k}">${k}</button>`).join('');
+  const leg='<div class="sub" style="margin-top:8px">'
+    +selArr.map(c=>`<span class="pill" style="background:${CLASSE_COR[c]}"></span>${TIPO_LABEL[c]}`).join(' &nbsp; ')
+    +' &nbsp;·&nbsp; <span style="opacity:.55">faixa clara = estimado (Yahoo)</span></div>';
+  const estBox = estF>0
+    ? `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn">${fmt(estF)}</div></div>`
     : `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v sub" style="font-size:13px">—</div></div>`;
   document.getElementById('prov').innerHTML=`
     <div class="card"><div class="kpi">
-      <div class="kpibox"><div class="l">Total (real + estimado)</div><div class="v">${fmt(p.total)}</div></div>
+      <div class="kpibox"><div class="l">Total (real + estimado)</div><div class="v">${fmt(totalF)}</div></div>
       <div class="kpibox"><div class="l">Últimos 12 meses</div><div class="v">${fmt(ult12)}</div></div>
       ${estBox}
-      <div class="kpibox"><div class="l">Lançamentos</div><div class="v">${fmt0(p.n_lanc)}</div></div>
+      <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(tickF.length)}</div></div>
     </div></div>
-    <div class="card"><h2>Proventos por mês — ${owner} (últimos 24)</h2>${bars}</div>
-    <div class="card"><h2>Por ativo (top 25)</h2>${top}</div>`;
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0">Proventos por mês — ${owner}</h2>
+        <div style="display:flex;gap:6px">${btns}</div>
+      </div>
+      ${chartProvMensal(mesesF,sel)}${leg}
+    </div>
+    <div class="card"><h2>Acumulado por ativo — ${owner}${provFiltro!=='Tudo'?' · '+provFiltro:''}</h2>${chartProvRanking(tickF)}</div>`;
+  document.querySelectorAll('#prov [data-pf]').forEach(b=>b.onclick=()=>{provFiltro=b.dataset.pf;renderProv();});
 }
 
 /* ====================================================================
@@ -686,13 +751,22 @@ function saveAporte(o){
    Carregar dados + configuracoes do Supabase, montar D
 ==================================================================== */
 function aggOwner(rows){
-  const mes={}, mesEst={}, tk={}; let tot=0,totEst=0,n=0;
-  rows.forEach(p=>{ const v=N(p.valor); if(v<=0) return; n++; const m=String(p.data).slice(0,7);
-    mes[m]=(mes[m]||0)+v; if(p.fonte==='estimado') mesEst[m]=true;
-    tk[p.ticker]=(tk[p.ticker]||0)+v; tot+=v; if(p.fonte==='estimado') totEst+=v;});
-  const por_mes=Object.keys(mes).sort().map(k=>({mes:k,valor:Math.round(mes[k]*100)/100,estimado:!!mesEst[k]}));
-  const por_ticker=Object.keys(tk).map(k=>({ticker:k,valor:Math.round(tk[k]*100)/100})).sort((a,b)=>b.valor-a.valor);
-  return {total:Math.round(tot*100)/100,total_estimado:Math.round(totEst*100)/100,n_lanc:n,por_mes,por_ticker};
+  const r2=v=>Math.round(v*100)/100, blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0},ETF:{real:0,est:0}});
+  const mes={}, tk={}; let tot=0,totEst=0,n=0;
+  rows.forEach(p=>{ const v=N(p.valor); if(v<=0) return; n++;
+    const m=String(p.data).slice(0,7);
+    const c=(p.classe==='FIIs'||p.classe==='Acoes'||p.classe==='ETF')?p.classe:'Acoes';
+    const fld=p.fonte==='estimado'?'est':'real';
+    (mes[m]=mes[m]||blankCls())[c][fld]+=v;
+    const t=tk[p.ticker]=tk[p.ticker]||{ticker:p.ticker,classe:c,real:0,est:0,valor:0};
+    t[fld]+=v; t.valor+=v;
+    tot+=v; if(fld==='est') totEst+=v;});
+  const por_mes=Object.keys(mes).sort().map(k=>{const cls=mes[k];
+    const total=['FIIs','Acoes','ETF'].reduce((s,c)=>s+cls[c].real+cls[c].est,0);
+    return {mes:k,cls,total:r2(total)};});
+  const por_ticker=Object.values(tk).map(t=>({ticker:t.ticker,classe:t.classe,
+    real:r2(t.real),est:r2(t.est),valor:r2(t.valor)})).sort((a,b)=>b.valor-a.valor);
+  return {total:r2(tot),total_estimado:r2(totEst),n_lanc:n,por_mes,por_ticker};
 }
 
 async function loadData(){
