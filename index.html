@@ -145,7 +145,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.7.0 · 2026-06-22</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.7.1 · 2026-06-22</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -772,9 +772,15 @@ function aggOwner(rows){
 async function loadData(){
   const grab = async (t)=>{ const {data,error}=await sb.from(t).select('*');
     if(error) throw new Error('tabela '+t+': '+(error.message||error.code||JSON.stringify(error))); return data||[]; };
+  // grabAll: pagina de 1000 em 1000 (o PostgREST/Supabase corta cada GET em 1000) — p/ tabelas grandes
+  const grabAll = async (t)=>{ const page=1000; let out=[], from=0;
+    while(true){ const {data,error}=await sb.from(t).select('*').order('id',{ascending:true}).range(from,from+page-1);
+      if(error) throw new Error('tabela '+t+': '+(error.message||error.code||JSON.stringify(error)));
+      out=out.concat(data||[]); if(!data||data.length<page) break; from+=page; }
+    return out; };
   const [posR,cotR,provR,bensR,ganhosR,metaR,
          alvoR,objR,sunoR,rfR,aporteR] = await Promise.all([
-    grab('posicoes'),grab('cotacoes'),grab('proventos'),grab('irpf_bens'),grab('irpf_ganhos'),grab('meta'),
+    grab('posicoes'),grab('cotacoes'),grabAll('proventos'),grab('irpf_bens'),grab('irpf_ganhos'),grab('meta'),
     grab('cfg_alvo_classe'),grab('cfg_objetivos'),grab('cfg_suno'),grab('cfg_renda_fixa'),grab('cfg_aporte')
   ]);
 
@@ -845,7 +851,7 @@ async function loadData(){
 
   // movimentacao (ledger) — tolerante (tabela pode nao existir ainda)
   movRows=[];
-  try{ movRows=await grab('movimentacao'); }catch(e){ diag('movimentacao indisponivel: '+(e.message||e)); }
+  try{ movRows=await grabAll('movimentacao'); }catch(e){ diag('movimentacao indisponivel: '+(e.message||e)); }
 }
 
 /* ====================================================================
