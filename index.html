@@ -145,7 +145,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.8.0 · 2026-06-23</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.8.1 · 2026-06-23</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -244,7 +244,7 @@ function donut(items){
 /* ====================================================================
    Graficos de proventos (SVG, sem libs)
 ==================================================================== */
-const PROV_ORDEM=['FIIs','Acoes','ETF'];
+const PROV_ORDEM=['FIIs','Acoes'];  // ETF nao distribui proventos -> fora da aba
 function niceTicks(max,target){
   target=target||4;
   if(!(max>0)) return {max:1,step:1,ticks:[0,1]};
@@ -257,26 +257,32 @@ function niceTicks(max,target){
 const fmtK=v=> v>=1000?(v/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})+'K':String(Math.round(v||0));
 
 // barras empilhadas por mes; cor=classe, faixa clara=estimado. sel=Set de classes.
-function chartProvMensal(meses,sel){
+// availW = largura disponivel em px: poucos meses preenchem a largura toda; muitos rolam.
+function chartProvMensal(meses,sel,availW){
   if(!meses.length) return '<div class="sub" style="margin-top:8px">Sem proventos no período.</div>';
-  const PL=46, PR=12, PT=10, PB=36, H=216, barW=24, gap=10;
+  const PL=46, PR=14, PT=10, PB=36, H=216, minSlot=30;
   const tot=m=>PROV_ORDEM.reduce((s,c)=>sel.has(c)?s+m.cls[c].real+m.cls[c].est:s,0);
   const nt=niceTicks(Math.max(...meses.map(tot),1),4);
-  const plotH=H-PT-PB, W=PL+gap+meses.length*(barW+gap)+PR;
+  const n=meses.length, base=availW||760;
+  let slot=Math.max(120,base-PL-PR)/n, scroll=false;
+  if(slot<minSlot){ slot=minSlot; scroll=true; }
+  const W=scroll?(PL+n*slot+PR):base;
+  const plotH=H-PT-PB, barW=Math.min(46,slot*0.62);
   const y=v=>PT+plotH*(1-v/nt.max);
   let g='';
   nt.ticks.forEach(t=>{const yy=y(t);
     g+=`<line x1="${PL}" y1="${yy}" x2="${W-PR}" y2="${yy}" stroke="var(--line)"/>`;
     g+=`<text x="${PL-6}" y="${yy+3}" text-anchor="end" font-size="9" fill="var(--mut)">${fmtK(t)}</text>`;});
   meses.forEach((m,i)=>{
-    const x=PL+gap+i*(barW+gap); let yc=y(0);
+    const cx=PL+i*slot+slot/2, x=cx-barW/2; let yc=y(0);
     PROV_ORDEM.forEach(c=>{ if(!sel.has(c)) return; const seg=m.cls[c];
       [['real',1],['est',.4]].forEach(([k,op])=>{ const v=seg[k]; if(v<=0) return;
         const h=plotH*v/nt.max; yc-=h;
         g+=`<rect x="${x}" y="${yc}" width="${barW}" height="${h}" fill="${CLASSE_COR[c]}" fill-opacity="${op}"><title>${m.mes} · ${TIPO_LABEL[c]}${k==='est'?' (estimado)':''}: ${fmt(v)}</title></rect>`;});});
-    const [Y,Mo]=m.mes.split('-'), cx=x+barW/2;
+    const [Y,Mo]=m.mes.split('-');
     g+=`<text x="${cx}" y="${H-PB+14}" text-anchor="end" font-size="9" fill="var(--mut)" transform="rotate(-45 ${cx} ${H-PB+14})">${Mo}/${Y.slice(2)}</text>`;});
-  return `<div style="overflow-x:auto;margin-top:8px"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${g}</svg></div>`;
+  const svg=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${g}</svg>`;
+  return scroll?`<div style="overflow-x:auto;margin-top:8px">${svg}</div>`:`<div style="margin-top:8px">${svg}</div>`;
 }
 
 // ranking horizontal por ativo (decrescente); rows ja filtradas por classe.
@@ -489,7 +495,7 @@ function resumoSuno(){
 /* ====================================================================
    PROVENTOS
 ==================================================================== */
-const PROV_FILTROS={Tudo:['FIIs','Acoes','ETF'],FIIs:['FIIs'],'Ações':['Acoes'],ETF:['ETF']};
+const PROV_FILTROS={Tudo:['FIIs','Acoes'],FIIs:['FIIs'],'Ações':['Acoes']};
 let provFiltro='Tudo', provAno='Tudo';
 function renderProv(){
   const p=D.proventos[owner]||{cells:[],anos:[]};
@@ -497,8 +503,8 @@ function renderProv(){
   const selArr=PROV_FILTROS[provFiltro]||PROV_FILTROS.Tudo, sel=new Set(selArr);
   // filtro ano + classe sobre as celulas
   const cellsF=p.cells.filter(c=>(provAno==='Tudo'||c.ano===provAno) && sel.has(c.classe));
-  // por mes (garante as 3 classes p/ o chart)
-  const blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0},ETF:{real:0,est:0}});
+  // por mes (garante as classes p/ o chart)
+  const blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0}});
   const mesMap={};
   cellsF.forEach(c=>{const m=mesMap[c.mes]=mesMap[c.mes]||blankCls(); m[c.classe].real+=c.real; m[c.classe].est+=c.est;});
   let por_mes=Object.keys(mesMap).sort().map(k=>({mes:k,cls:mesMap[k]}));
@@ -538,7 +544,7 @@ function renderProv(){
         <h2 style="margin:0">Proventos por mês${provAno!=='Tudo'?' · '+provAno:''}</h2>
         <div style="display:flex;gap:6px">${clsBtns}</div>
       </div>
-      ${chartProvMensal(por_mes,sel)}${leg}
+      ${chartProvMensal(por_mes,sel,Math.max(320,((document.querySelector('.wrap')||{}).clientWidth||1084)-72))}${leg}
     </div>
     <div class="card"><h2>Acumulado por ativo${sfx}</h2>${chartProvRanking(por_ticker)}</div>`;
   document.querySelectorAll('#prov [data-ano]').forEach(b=>b.onclick=()=>{provAno=b.dataset.ano;renderProv();});
@@ -775,7 +781,7 @@ function aggOwner(rows){
   const cell={};
   rows.forEach(p=>{ const v=N(p.valor); if(v<=0) return;
     const m=String(p.data).slice(0,7);
-    const c=(p.classe==='FIIs'||p.classe==='Acoes'||p.classe==='ETF')?p.classe:'Acoes';
+    const c=(p.classe==='FIIs')?'FIIs':'Acoes';  // ETF/outros caem em Acoes (renda variavel)
     const fld=p.fonte==='estimado'?'est':'real';
     const k=p.ticker+'|'+m;
     const e=cell[k]=cell[k]||{mes:m,ano:m.slice(0,4),ticker:p.ticker,classe:c,real:0,est:0};
