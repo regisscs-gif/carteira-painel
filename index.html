@@ -145,7 +145,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.7.1 · 2026-06-22</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.8.0 · 2026-06-23</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -490,17 +490,30 @@ function resumoSuno(){
    PROVENTOS
 ==================================================================== */
 const PROV_FILTROS={Tudo:['FIIs','Acoes','ETF'],FIIs:['FIIs'],'Ações':['Acoes'],ETF:['ETF']};
-let provFiltro='Tudo';
+let provFiltro='Tudo', provAno='Tudo';
 function renderProv(){
-  const p=D.proventos[owner]||{por_mes:[],por_ticker:[],total:0,total_estimado:0,n_lanc:0};
+  const p=D.proventos[owner]||{cells:[],anos:[]};
+  if(provAno!=='Tudo' && !p.anos.includes(provAno)) provAno='Tudo';  // ano some ao trocar de titular
   const selArr=PROV_FILTROS[provFiltro]||PROV_FILTROS.Tudo, sel=new Set(selArr);
-  const mesVal=m=>PROV_ORDEM.reduce((s,c)=>sel.has(c)?s+m.cls[c].real+m.cls[c].est:s,0);
-  const tickF=p.por_ticker.filter(t=>sel.has(t.classe));
-  const totalF=tickF.reduce((s,t)=>s+t.valor,0);
-  const estF=tickF.reduce((s,t)=>s+t.est,0);
-  const ult12=p.por_mes.slice(-12).reduce((s,m)=>s+mesVal(m),0);
-  const mesesF=p.por_mes.slice(-24);
-  const btns=Object.keys(PROV_FILTROS).map(k=>`<button class="fbtn${k===provFiltro?' on':''}" data-pf="${k}">${k}</button>`).join('');
+  // filtro ano + classe sobre as celulas
+  const cellsF=p.cells.filter(c=>(provAno==='Tudo'||c.ano===provAno) && sel.has(c.classe));
+  // por mes (garante as 3 classes p/ o chart)
+  const blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0},ETF:{real:0,est:0}});
+  const mesMap={};
+  cellsF.forEach(c=>{const m=mesMap[c.mes]=mesMap[c.mes]||blankCls(); m[c.classe].real+=c.real; m[c.classe].est+=c.est;});
+  let por_mes=Object.keys(mesMap).sort().map(k=>({mes:k,cls:mesMap[k]}));
+  if(provAno==='Tudo') por_mes=por_mes.slice(-24);
+  // por ticker (ranking)
+  const tkMap={};
+  cellsF.forEach(c=>{const t=tkMap[c.ticker]=tkMap[c.ticker]||{ticker:c.ticker,classe:c.classe,real:0,est:0,valor:0};
+    t.real+=c.real; t.est+=c.est; t.valor+=c.valor;});
+  const por_ticker=Object.values(tkMap).sort((a,b)=>b.valor-a.valor);
+  // KPIs
+  const realF=cellsF.reduce((s,c)=>s+c.real,0), estF=cellsF.reduce((s,c)=>s+c.est,0), totalF=realF+estF;
+  // botoes
+  const anoBtns=['Tudo',...p.anos].map(a=>`<button class="fbtn${String(a)===String(provAno)?' on':''}" data-ano="${a}">${a}</button>`).join('');
+  const clsBtns=Object.keys(PROV_FILTROS).map(k=>`<button class="fbtn${k===provFiltro?' on':''}" data-pf="${k}">${k}</button>`).join('');
+  const sfx=(provAno!=='Tudo'?' · '+provAno:'')+(provFiltro!=='Tudo'?' · '+provFiltro:'');
   const leg='<div class="sub" style="margin-top:8px">'
     +selArr.map(c=>`<span class="pill" style="background:${CLASSE_COR[c]}"></span>${TIPO_LABEL[c]}`).join(' &nbsp; ')
     +' &nbsp;·&nbsp; <span style="opacity:.55">faixa clara = estimado (Yahoo)</span></div>';
@@ -508,20 +521,27 @@ function renderProv(){
     ? `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn">${fmt(estF)}</div></div>`
     : `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v sub" style="font-size:13px">—</div></div>`;
   document.getElementById('prov').innerHTML=`
-    <div class="card"><div class="kpi">
-      <div class="kpibox"><div class="l">Total (real + estimado)</div><div class="v">${fmt(totalF)}</div></div>
-      <div class="kpibox"><div class="l">Últimos 12 meses</div><div class="v">${fmt(ult12)}</div></div>
-      ${estBox}
-      <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(tickF.length)}</div></div>
-    </div></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+        <h2 style="margin:0">Proventos — ${owner}</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${anoBtns}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpibox"><div class="l">Total (pago + estimado)</div><div class="v">${fmt(totalF)}</div></div>
+        <div class="kpibox"><div class="l">Pago (real)</div><div class="v">${fmt(realF)}</div></div>
+        ${estBox}
+        <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(por_ticker.length)}</div></div>
+      </div>
+    </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <h2 style="margin:0">Proventos por mês — ${owner}</h2>
-        <div style="display:flex;gap:6px">${btns}</div>
+        <h2 style="margin:0">Proventos por mês${provAno!=='Tudo'?' · '+provAno:''}</h2>
+        <div style="display:flex;gap:6px">${clsBtns}</div>
       </div>
-      ${chartProvMensal(mesesF,sel)}${leg}
+      ${chartProvMensal(por_mes,sel)}${leg}
     </div>
-    <div class="card"><h2>Acumulado por ativo — ${owner}${provFiltro!=='Tudo'?' · '+provFiltro:''}</h2>${chartProvRanking(tickF)}</div>`;
+    <div class="card"><h2>Acumulado por ativo${sfx}</h2>${chartProvRanking(por_ticker)}</div>`;
+  document.querySelectorAll('#prov [data-ano]').forEach(b=>b.onclick=()=>{provAno=b.dataset.ano;renderProv();});
   document.querySelectorAll('#prov [data-pf]').forEach(b=>b.onclick=()=>{provFiltro=b.dataset.pf;renderProv();});
 }
 
@@ -751,22 +771,20 @@ function saveAporte(o){
    Carregar dados + configuracoes do Supabase, montar D
 ==================================================================== */
 function aggOwner(rows){
-  const r2=v=>Math.round(v*100)/100, blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0},ETF:{real:0,est:0}});
-  const mes={}, tk={}; let tot=0,totEst=0,n=0;
-  rows.forEach(p=>{ const v=N(p.valor); if(v<=0) return; n++;
+  // celulas agregadas por (ticker, mes); renderProv filtra por ano/classe a partir daqui
+  const cell={};
+  rows.forEach(p=>{ const v=N(p.valor); if(v<=0) return;
     const m=String(p.data).slice(0,7);
     const c=(p.classe==='FIIs'||p.classe==='Acoes'||p.classe==='ETF')?p.classe:'Acoes';
     const fld=p.fonte==='estimado'?'est':'real';
-    (mes[m]=mes[m]||blankCls())[c][fld]+=v;
-    const t=tk[p.ticker]=tk[p.ticker]||{ticker:p.ticker,classe:c,real:0,est:0,valor:0};
-    t[fld]+=v; t.valor+=v;
-    tot+=v; if(fld==='est') totEst+=v;});
-  const por_mes=Object.keys(mes).sort().map(k=>{const cls=mes[k];
-    const total=['FIIs','Acoes','ETF'].reduce((s,c)=>s+cls[c].real+cls[c].est,0);
-    return {mes:k,cls,total:r2(total)};});
-  const por_ticker=Object.values(tk).map(t=>({ticker:t.ticker,classe:t.classe,
-    real:r2(t.real),est:r2(t.est),valor:r2(t.valor)})).sort((a,b)=>b.valor-a.valor);
-  return {total:r2(tot),total_estimado:r2(totEst),n_lanc:n,por_mes,por_ticker};
+    const k=p.ticker+'|'+m;
+    const e=cell[k]=cell[k]||{mes:m,ano:m.slice(0,4),ticker:p.ticker,classe:c,real:0,est:0};
+    e[fld]+=v;});
+  const r2=v=>Math.round(v*100)/100;
+  const cells=Object.values(cell).map(e=>({mes:e.mes,ano:e.ano,ticker:e.ticker,classe:e.classe,
+    real:r2(e.real),est:r2(e.est),valor:r2(e.real+e.est)}));
+  const anos=[...new Set(cells.map(e=>e.ano))].sort().reverse();
+  return {cells,anos};
 }
 
 async function loadData(){
