@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.9.1 · 2026-06-23</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.10.0 · 2026-06-24</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -726,37 +726,129 @@ function calcularAporte(){
 /* ====================================================================
    IRPF
 ==================================================================== */
+const IRPF_GRUPO={Acoes:{g:'03',c:'01',un:'ações'},FIIs:{g:'07',c:'03',un:'cotas'},
+  ETF:{g:'07',c:'09',un:'cotas'},Stocks:{g:'03',c:'01',un:'cotas'},'Renda Fixa':{g:'04',c:'02',un:''}};
+const IRPF_COD={isento:[['09','09 · Dividendos (ações)'],['26','26 · Rendimentos de FII'],['18','18 · Bonificações em ações'],['12','12 · Poupança/LCI/LCA/debênt.'],['20','20 · Venda ações ≤ R$20k/mês'],['99','99 · Outros']],
+  exclusiva:[['10','10 · JCP'],['06','06 · Aplicações financeiras'],['12','12 · Outros']]};
+const IRPF_IN='background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px';
+let irpfFiltro='Todos', irpfBusca='';
+function irpfDiscrim(tk,b){
+  const c=(D.irpf.cfg||{})[tk]||{}, isU=b.moeda==='USD';
+  const nome=(c.nome&&c.nome!==tk)?(' - '+c.nome):'', cnpj=c.cnpj?(', CNPJ '+c.cnpj):'';
+  const un=(IRPF_GRUPO[b.classe]||{}).un||'cotas', pm=isU?fmtU(b.pm):fmt(b.pm);
+  return `${fmt0(b.qtd)} ${un} de ${tk}${nome}${cnpj}. Preço médio ${pm}.${isU?' Corretora Avenue (EUA).':''}`;
+}
+function saveCfgIrpf(tk,patch){
+  D.irpf.cfg[tk]=Object.assign(D.irpf.cfg[tk]||{ticker:tk},patch);
+  sb.from('cfg_irpf').upsert(Object.assign({owner_uid:UID,ticker:tk},patch),{onConflict:'owner_uid,ticker'}).then(()=>{});
+}
+function saveBensDecl(tk,ano,on){ if(D.irpf.bens_atual[tk])D.irpf.bens_atual[tk].declarado=on;
+  sb.from('irpf_bens').update({declarado:on}).eq('owner_uid',UID).eq('ano_base',ano).eq('ticker',tk).then(()=>{}); }
+function saveRend(r){ sb.from('irpf_rendimentos').update({ficha:r.ficha,codigo:r.codigo,valor:r.valor,descricao:r.descricao,declarado:r.declarado}).eq('id',r.id).then(()=>{}); }
+function addRend(tk,ficha){ const r={owner_uid:UID,ano_base:D.irpf.ano_base,ticker:tk,ficha:ficha,codigo:ficha==='isento'?'09':'10',descricao:'',valor:0,fonte:'manual',declarado:false};
+  sb.from('irpf_rendimentos').insert(r).select('*').single().then(({data,error})=>{ if(!error){ D.irpf.rend.push(data); renderIRPF(); } }); }
+function delRend(id){ sb.from('irpf_rendimentos').delete().eq('id',id).then(()=>{ D.irpf.rend=D.irpf.rend.filter(x=>String(x.id)!==String(id)); renderIRPF(); }); }
+function copia(txt){ try{navigator.clipboard.writeText(txt);}catch(e){} }
+
 function renderIRPF(){
-  const irpf=D.irpf, anos=Object.keys(irpf.ganhos).sort();
+  const I=D.irpf, anos=Object.keys(I.ganhos).sort();
   let g='<table><thead><tr><th>Ano</th><th>Ganho realizado</th></tr></thead><tbody>';
-  anos.forEach(a=>{
-    const x=irpf.ganhos[a], inc=x.vendas.some(v=>v.incompleto);
-    g+=`<tr><td>${a}</td><td class="${cls(x.ganho)}">${sig(x.ganho)} ${inc?'<span class="tag warn" title="custo incompleto: bonificação não modelada">⚠ revisar</span>':''}</td></tr>`;
-  });
+  anos.forEach(a=>{ const x=I.ganhos[a], inc=x.vendas.some(v=>v.incompleto);
+    g+=`<tr><td>${a}</td><td class="${cls(x.ganho)}">${sig(x.ganho)} ${inc?'<span class="tag warn" title="custo incompleto">⚠ revisar</span>':''}</td></tr>`;});
   g+='</tbody></table>';
   let det='<table><thead><tr><th>Data</th><th>Ativo</th><th>Qtd</th><th>Venda</th><th>Custo</th><th>Ganho</th></tr></thead><tbody>';
-  anos.slice().reverse().forEach(a=>irpf.ganhos[a].vendas.forEach(v=>{
-    det+=`<tr><td>${v.data.split('-').reverse().join('/')}</td><td><b>${v.ticker}</b>${v.incompleto?' <span class="warn" title="bonificação não modelada">⚠</span>':''}</td>
-      <td>${fmt0(v.qtd)}</td><td>${fmt(v.valor_venda)}</td><td>${fmt(v.custo)}</td><td class="${cls(v.ganho)}">${sig(v.ganho)}</td></tr>`;
-  }));
+  anos.slice().reverse().forEach(a=>I.ganhos[a].vendas.forEach(v=>{
+    det+=`<tr><td>${v.data.split('-').reverse().join('/')}</td><td><b>${v.ticker}</b>${v.incompleto?' <span class="warn">⚠</span>':''}</td>
+      <td>${fmt0(v.qtd)}</td><td>${fmt(v.valor_venda)}</td><td>${fmt(v.custo)}</td><td class="${cls(v.ganho)}">${sig(v.ganho)}</td></tr>`;}));
   det+='</tbody></table>';
-  const bens=irpf.bens_atual, ant=irpf.bens_anterior, tks=Object.keys(bens).sort();
-  let bd='<table><thead><tr><th>Ativo</th><th>Qtd</th><th>Custo 31/12/'+(irpf.ano_base-1)+'</th><th>Custo 31/12/'+irpf.ano_base+'</th></tr></thead><tbody>';
-  let totA=0,totB=0,temUSD=false;
-  tks.forEach(t=>{
-    const isU=bens[t].moeda==='USD', aU=ant[t]&&ant[t].moeda==='USD'; if(isU)temUSD=true;
-    const ca=ant[t]?ant[t].custo:0, cb=bens[t].custo;
-    totA+=aU?ca*(D_fxUSD||1):ca; totB+=isU?cb*(D_fxUSD||1):cb;
-    const fa=ca?(aU?fmtU(ca):fmt(ca)):'—', fb=isU?fmtU(cb):fmt(cb);
-    bd+=`<tr><td><b>${t}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td><td>${fmt0(bens[t].qtd)}</td><td>${fa}</td><td>${fb}</td></tr>`;
+
+  // ---- worklist por ativo (Bens + rendimentos + referência + status) ----
+  const ba=I.bens_atual, an=I.bens_anterior, rendBy={};
+  (I.rend||[]).forEach(r=>{(rendBy[r.ticker]=rendBy[r.ticker]||[]).push(r);});
+  const clOf=tk=>(ba[tk]||an[tk]||{}).classe||'';
+  const ativos=[...new Set([...Object.keys(ba),...Object.keys(rendBy)])]
+    .sort((x,y)=>{const cx=CLASSES.indexOf(clOf(x)),cy=CLASSES.indexOf(clOf(y)); return cx!==cy?cx-cy:x.localeCompare(y);});
+  let cards='', totB=0, temUSD=false, mostrados=0;
+  ativos.forEach(tk=>{
+    const has=!!ba[tk], b=ba[tk]||{qtd:0,custo:0,pm:0,moeda:'BRL',classe:clOf(tk),declarado:false};
+    const isU=b.moeda==='USD'; if(isU)temUSD=true;
+    const cfg=(I.cfg||{})[tk]||{}, gr=IRPF_GRUPO[b.classe]||{g:'?',c:'?'};
+    const lines=(rendBy[tk]||[]);
+    const bensPend=has&&!b.declarado, rendPend=lines.some(l=>!l.declarado);
+    if(irpfFiltro==='Falta' && !(bensPend||rendPend)) return;
+    const q=irpfBusca.trim().toLowerCase();
+    if(q && !((cfg.fonte_nome||'').toLowerCase().includes(q)||tk.toLowerCase().includes(q))) return;
+    mostrados++; if(has)totB+=isU?b.custo*(D_fxUSD||1):b.custo;
+    const ca=an[tk]?an[tk].custo:0, aU=an[tk]&&an[tk].moeda==='USD';
+    const sitAnt=an[tk]?(aU?fmtU(ca):fmt(ca)):'—', sitAtu=has?(isU?fmtU(b.custo):fmt(b.custo)):'(vendido)';
+    let rl='';
+    ['isento','exclusiva'].forEach(fi=>{
+      rl+=`<div class="sub" style="margin-top:6px;font-weight:700">${fi==='isento'?'Rendimentos isentos / não tributáveis':'Tributação exclusiva / definitiva'}</div>`;
+      lines.filter(l=>l.ficha===fi).forEach(l=>{
+        const opts=IRPF_COD[fi].map(o=>`<option value="${o[0]}"${o[0]===l.codigo?' selected':''}>${o[1]}</option>`).join('');
+        rl+=`<div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap">
+          <select data-rk="${l.id}" data-rf="codigo" style="${IRPF_IN}">${opts}</select>
+          <input data-rk="${l.id}" data-rf="valor" value="${N(l.valor)?N(l.valor).toFixed(2):''}" placeholder="valor R$" style="${IRPF_IN};width:96px;text-align:right">
+          <label class="sub" style="font-size:11px"><input type="checkbox" data-rk="${l.id}" data-rf="declarado" ${l.declarado?'checked':''}> declarado</label>
+          ${l.fonte==='proventos'?'<span class="sub" style="font-size:10px" title="estimado dos proventos; confira no informe">~proventos</span>':''}
+          <span data-rdel="${l.id}" style="cursor:pointer;opacity:.5" title="remover">✕</span></div>`;
+      });
+      rl+=`<span data-radd="${tk}" data-rfi="${fi}" class="link" style="font-size:11px">+ adicionar linha</span>`;
+    });
+    cards+=`<div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div><b style="font-size:15px">${tk}</b> <span class="pill" style="background:${CLASSE_COR[b.classe]||'var(--mut)'}"></span>${TIPO_LABEL[b.classe]||b.classe||'—'}
+          <span class="sub">· Bens: Grupo ${gr.g} / Código ${gr.c}</span></div>
+        ${has?`<label class="sub" style="font-size:12px;${bensPend?'color:var(--c-stocks)':''}"><input type="checkbox" data-bd="${tk}" ${b.declarado?'checked':''}> Bens declarado</label>`:'<span class="tag">só rendimentos</span>'}
+      </div>
+      ${has?`<div style="margin-top:8px;display:flex;gap:8px;align-items:flex-start">
+        <div style="flex:1"><span class="sub">Discriminação</span><div>${irpfDiscrim(tk,b)}</div></div>
+        <span data-cp="${tk}" style="cursor:pointer" title="copiar discriminação">📋</span></div>
+      <div class="sub" style="margin-top:6px">Situação 31/12/${I.ano_base-1}: <b>${sitAnt}</b> &nbsp;→&nbsp; 31/12/${I.ano_base}: <b>${sitAtu}</b>${isU?' <span style="opacity:.6">(US$ — exterior pelo câmbio da data de compra; informativo)</span>':''}</div>`:''}
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span class="sub">📄 Onde buscar o informe:</span>
+        <input data-cfg="${tk}" data-cf="fonte_nome" value="${(cfg.fonte_nome||'').replace(/"/g,'&quot;')}" placeholder="${b.classe==='FIIs'?'administrador':'escriturador'}" style="${IRPF_IN};width:200px">
+        <input data-cfg="${tk}" data-cf="cnpj" value="${cfg.cnpj||''}" placeholder="CNPJ" style="${IRPF_IN};width:150px">
+        ${cfg.fonte_tipo?`<span class="sub" style="font-size:10px">(${cfg.fonte_tipo} · confira)</span>`:''}
+      </div>
+      <div style="margin-top:6px">${rl}</div></div>`;
   });
-  bd+=`</tbody><tfoot><tr><th>${tks.length} bens</th><th></th><th>${fmt(totA)}</th><th>${fmt(totB)}</th></tr></tfoot></table>`;
+  const fbtn=(k,lbl)=>`<button class="fbtn${irpfFiltro===k?' on':''}" data-if="${k}">${lbl}</button>`;
   document.getElementById('irpf').innerHTML=`
     <div class="card"><h2>Ganhos realizados por ano</h2>${g}
-      <div class="note">⚠ "revisar" = ativo vendido com bonificação ainda não modelada (custo aproximado). Os demais usam custo médio com base oficial.</div></div>
+      <div class="note">⚠ "revisar" = venda com bonificação não modelada (custo aproximado).</div></div>
     <div class="card"><h2>Detalhe das vendas</h2><div style="overflow-x:auto">${det}</div></div>
-    <div class="card"><h2>Bens e Direitos (posição em 31/12)</h2><div style="overflow-x:auto">${bd}</div>
-      <div class="note">Custo total declarável: <b>${fmt(totB)}</b> em ${tks.length} ativos (não inclui Renda Fixa).${temUSD?' <span class="warn">Exterior (US$) convertido ao câmbio atual (aprox.); ganhos de capital do exterior e câmbio por data ainda não modelados.</span>':''}</div></div>`;
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0">Declaração por ativo — base ${I.ano_base}</h2>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          ${fbtn('Todos','Todos')}${fbtn('Falta','Falta declarar')}
+          <input id="irpfBusca" value="${irpfBusca.replace(/"/g,'&quot;')}" placeholder="buscar ativo/fonte" style="${IRPF_IN};width:150px">
+          <button class="fbtn" id="irpfCopiar">📋 Copiar Bens (TSV)</button>
+        </div>
+      </div>
+      <div class="note">${mostrados} ativo(s). Custo de Bens (BRL, exterior ao câmbio atual): <b>${fmt(totB)}</b>. Grupo/Código e fontes são <b>sugestão — confira</b>; não é orientação contábil.${temUSD?' Exterior (US$) é informativo.':''}</div>
+      <div style="margin-top:12px">${cards||'<div class="sub">Sem ativos. Rode o seed do IRPF.</div>'}</div>
+    </div>`;
+  // ---- handlers ----
+  const $=s=>document.querySelectorAll(s);
+  $('#irpf [data-if]').forEach(b=>b.onclick=()=>{irpfFiltro=b.dataset.if;renderIRPF();});
+  const bu=document.getElementById('irpfBusca'); if(bu)bu.oninput=()=>{irpfBusca=bu.value;renderIRPF();
+    const nb=document.getElementById('irpfBusca'); if(nb){nb.focus();const v=nb.value.length;nb.setSelectionRange(v,v);}};
+  $('#irpf [data-bd]').forEach(c=>c.onchange=()=>{saveBensDecl(c.dataset.bd,I.ano_base,c.checked);renderIRPF();});
+  $('#irpf [data-cfg]').forEach(inp=>inp.onchange=()=>saveCfgIrpf(inp.dataset.cfg,{[inp.dataset.cf]:inp.value.trim()}));
+  $('#irpf [data-cp]').forEach(s=>s.onclick=()=>{const tk=s.dataset.cp;copia(irpfDiscrim(tk,ba[tk]));s.textContent='✓';setTimeout(()=>s.textContent='📋',900);});
+  $('#irpf [data-rk]').forEach(el=>{el.onchange=()=>{const r=(I.rend||[]).find(x=>String(x.id)===String(el.dataset.rk)); if(!r)return;
+    const f=el.dataset.rf; r[f]=(f==='valor')?numBR(el.value):(f==='declarado')?el.checked:el.value; saveRend(r); if(f==='declarado')renderIRPF();};});
+  $('#irpf [data-rdel]').forEach(s=>s.onclick=()=>delRend(s.dataset.rdel));
+  $('#irpf [data-radd]').forEach(s=>s.onclick=()=>addRend(s.dataset.radd,s.dataset.rfi));
+  const cpAll=document.getElementById('irpfCopiar'); if(cpAll)cpAll.onclick=()=>{
+    let tsv='Ativo\tGrupo\tCódigo\tDiscriminação\tSit 31/12/'+(I.ano_base-1)+'\tSit 31/12/'+I.ano_base+'\n';
+    ativos.forEach(tk=>{ if(!ba[tk])return; const b=ba[tk], gr=IRPF_GRUPO[b.classe]||{g:'',c:''}, isU=b.moeda==='USD';
+      const ca=an[tk]?an[tk].custo:0, aU=an[tk]&&an[tk].moeda==='USD';
+      tsv+=[tk,gr.g,gr.c,irpfDiscrim(tk,b),an[tk]?(aU?fmtU(ca):fmt(ca)):'',isU?fmtU(b.custo):fmt(b.custo)].join('\t')+'\n'; });
+    copia(tsv); cpAll.textContent='✓ copiado'; setTimeout(()=>cpAll.textContent='📋 Copiar Bens (TSV)',1200);
+  };
 }
 
 /* ====================================================================
@@ -861,7 +953,12 @@ async function loadData(){
   // irpf
   const bens_atual={}, bens_anterior={};
   bensR.forEach(b=>{ const o=(b.ano_base===anoBase)?bens_atual:(b.ano_base===anoBase-1?bens_anterior:null);
-    if(o) o[b.ticker]={qtd:N(b.qtd),custo:N(b.custo),pm:N(b.pm),moeda:(b.moeda||'BRL')};});
+    if(o) o[b.ticker]={qtd:N(b.qtd),custo:N(b.custo),pm:N(b.pm),moeda:(b.moeda||'BRL'),
+                       classe:b.classe||'',declarado:!!b.declarado};});
+  // IRPF worklist: registro por ativo (cfg_irpf) + linhas de rendimento (irpf_rendimentos) — tolerantes
+  const cfgIrpf={}; let rendIrpf=[];
+  try{ (await grab('cfg_irpf')).forEach(r=>cfgIrpf[r.ticker]=r); }catch(e){ diag('cfg_irpf indisponivel: '+(e.message||e)); }
+  try{ rendIrpf=(await grabAll('irpf_rendimentos')).filter(r=>r.ano_base===anoBase); }catch(e){ diag('irpf_rendimentos indisponivel: '+(e.message||e)); }
   const ganhos={};
   ganhosR.forEach(v=>{ const a=v.ano; (ganhos[a]=ganhos[a]||{vendas:[],ganho:0});
     ganhos[a].vendas.push({data:v.data,ticker:v.ticker,qtd:N(v.qtd),valor_venda:N(v.valor_venda),
@@ -871,7 +968,7 @@ async function loadData(){
   D={ gerado_em: metaMap.precos_atualizado_em||metaMap.gerado_em||'—',
       refresh_iso: metaMap.refresh_em_iso||null, refresh_status: metaMap.refresh_status||'', refresh_msg: metaMap.refresh_msg||'',
       suno_iso: metaMap.suno_atualizado_em||null, suno_status: metaMap.suno_status||'',
-      posicoes, proventos, irpf:{ano_base:anoBase,bens_atual,bens_anterior,ganhos} };
+      posicoes, proventos, irpf:{ano_base:anoBase,bens_atual,bens_anterior,ganhos,cfg:cfgIrpf,rend:rendIrpf} };
   document.getElementById('gerado').textContent='atualizado em '+D.gerado_em+(D_fxUSD?(' · dólar R$ '+D_fxUSD.toFixed(2)):'');
   renderPiStatus(); renderSunoStatus();
 
