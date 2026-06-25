@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.10.0 · 2026-06-24</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.11.0 · 2026-06-25</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -791,6 +791,7 @@ function renderIRPF(){
           <input data-rk="${l.id}" data-rf="valor" value="${N(l.valor)?N(l.valor).toFixed(2):''}" placeholder="valor R$" style="${IRPF_IN};width:96px;text-align:right">
           <label class="sub" style="font-size:11px"><input type="checkbox" data-rk="${l.id}" data-rf="declarado" ${l.declarado?'checked':''}> declarado</label>
           ${l.fonte==='proventos'?'<span class="sub" style="font-size:10px" title="estimado dos proventos; confira no informe">~proventos</span>':''}
+          ${l.fonte==='informe'?'<span class="sub" style="font-size:10px;color:var(--ok,#16a34a)" title="extraído do informe oficial">✓ informe</span>':''}
           <span data-rdel="${l.id}" style="cursor:pointer;opacity:.5" title="remover">✕</span></div>`;
       });
       rl+=`<span data-radd="${tk}" data-rfi="${fi}" class="link" style="font-size:11px">+ adicionar linha</span>`;
@@ -1087,11 +1088,15 @@ function renderImport(){
         <input type="file" id="impNota" accept=".pdf"> <span class="fbtn" id="impNotabtn" style="cursor:pointer">Enviar</span></div>
       <div><div class="sub" style="margin-bottom:6px">🇺🇸 Confirmação Avenue (.pdf) — em US$</div>
         <input type="file" id="impAve" accept=".pdf"> <span class="fbtn" id="impAvebtn" style="cursor:pointer">Enviar</span></div>
+      <div><div class="sub" style="margin-bottom:6px">📄 Informe de rendimentos (.pdf) — IRPF</div>
+        <input type="file" id="impInf" accept=".pdf"> <span class="fbtn" id="impInfbtn" style="cursor:pointer">Enviar</span>
+        <div class="note" style="margin-top:4px">Administrador (FII) ou escriturador (ação). Os valores caem na aba <b>IRPF</b>.</div></div>
     </div>
     <div class="note" id="impStatus" style="margin-top:12px"></div>`;
   document.getElementById('impB3btn').onclick=()=>enviarImport('b3', document.getElementById('impB3'));
   document.getElementById('impNotabtn').onclick=()=>enviarImport('nota', document.getElementById('impNota'));
   document.getElementById('impAvebtn').onclick=()=>enviarImport('avenue', document.getElementById('impAve'));
+  document.getElementById('impInfbtn').onclick=()=>enviarImport('informe', document.getElementById('impInf'));
 }
 function renderStocksForm(){
   const el=document.getElementById('stkForm'); if(!el) return;
