@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.8 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.14.0 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -184,7 +184,8 @@ let D=null;                 // {gerado_em, posicoes:{owner:[...]}, proventos:{ow
 let owner='Consolidado';
 let alvoClasseAll={};       // {owner:{classe:alvo}}
 let objManual={};           // {owner:{tk:pct}}
-let rfEntries=[];           // [{titulo,valor}]
+let rfByOwner={Regis:[],Theo:[]};   // renda fixa por titular; [{titulo,valor}]
+const rfList=o=> o==='Consolidado' ? [...(rfByOwner.Regis||[]),...(rfByOwner.Theo||[])] : (rfByOwner[o]||[]);
 let suno={FIIs:{},Acoes:{}};
 let sunoTxt={FIIs:'',Acoes:''};
 let aporteAll={};           // {owner:{classe:valor}}
@@ -471,7 +472,7 @@ let valClasse={}, totalGeral=0;
 function recalc(){
   valClasse={Acoes:0,FIIs:0,ETF:0,Stocks:0,'Renda Fixa':0};
   (D.posicoes[owner]||[]).forEach(p=>{if(valClasse[p.classe]!=null)valClasse[p.classe]+=p.valor;});
-  valClasse['Renda Fixa']=(owner==='Theo')?0:rfEntries.reduce((s,r)=>s+(Number(r.valor)||0),0);
+  valClasse['Renda Fixa']=rfList(owner).reduce((s,r)=>s+(Number(r.valor)||0),0);
   totalGeral=CLASSES.reduce((s,c)=>s+valClasse[c],0);
   document.getElementById('totalGeral').textContent=fmt(totalGeral);
   renderDash();
@@ -711,30 +712,42 @@ function renderPos(){
    Renda Fixa editavel
 ==================================================================== */
 function renderRF(){
-  let h='<table><thead><tr><th>Título</th><th>Valor (R$)</th><th></th></tr></thead><tbody>';
-  rfEntries.forEach((r,i)=>{
+  // Consolidado: visão somente-leitura agrupada por titular (edite na visão de cada um)
+  if(owner==='Consolidado'){
+    let h='<table><thead><tr><th>Título</th><th>Titular</th><th style="text-align:right">Valor (R$)</th></tr></thead><tbody>';
+    let tot=0;
+    ['Regis','Theo'].forEach(t=>(rfByOwner[t]||[]).forEach(r=>{ tot+=Number(r.valor)||0;
+      h+=`<tr><td style="text-align:left">${String(r.titulo||'')}</td><td>${t}</td><td style="text-align:right">${fmt(Number(r.valor)||0)}</td></tr>`;}));
+    if(tot===0) h+='<tr><td colspan="3" class="sub">Nenhum título de renda fixa cadastrado.</td></tr>';
+    h+=`</tbody></table><div style="margin-top:12px" class="sub">total Renda Fixa: <b>${fmt(tot)}</b></div>
+      <div class="note">Visão consolidada (Regis + Theo). Para editar, selecione o titular em <b>Visão</b>.</div>`;
+    document.getElementById('posTable').innerHTML=h; return;
+  }
+  const lista=rfByOwner[owner]=rfByOwner[owner]||[];
+  let h=`<table><thead><tr><th>Título</th><th>Valor (R$)</th><th></th></tr></thead><tbody>`;
+  lista.forEach((r,i)=>{
     h+=`<tr>
       <td style="text-align:left"><input data-i="${i}" data-f="titulo" value="${String(r.titulo||'').replace(/"/g,'&quot;')}" style="width:100%;min-width:180px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px"></td>
       <td><input data-i="${i}" data-f="valor" value="${r.valor}" style="width:130px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px;text-align:right"></td>
       <td><span class="fbtn" data-rm="${i}" style="padding:2px 9px;cursor:pointer">✕</span></td></tr>`;
   });
-  const tot=rfEntries.reduce((s,r)=>s+(Number(r.valor)||0),0);
+  const tot=lista.reduce((s,r)=>s+(Number(r.valor)||0),0);
   h+=`</tbody></table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <span class="fbtn" id="rfAdd" style="cursor:pointer">+ adicionar título</span>
       <span class="fbtn on" id="rfSave" style="border:none;cursor:pointer">Salvar</span>
-      <span class="sub">total Renda Fixa: <b>${fmt(tot)}</b></span>
+      <span class="sub">Renda Fixa de <b>${owner}</b>: <b>${fmt(tot)}</b></span>
     </div>
-    <div class="note">Edite os valores que você quer declarar. "Salvar" grava no Supabase e recalcula a alocação. (Use ponto ou vírgula decimal; sem separador de milhar.)</div>`;
+    <div class="note">Renda Fixa de <b>${owner}</b> (separada por titular). "Salvar" grava no Supabase e recalcula a alocação. (Use ponto ou vírgula decimal; sem separador de milhar.)</div>`;
   document.getElementById('posTable').innerHTML=h;
   document.querySelectorAll('#posTable input[data-i]').forEach(inp=>inp.onchange=()=>{
     const i=+inp.dataset.i, f=inp.dataset.f;
-    rfEntries[i][f] = (f==='valor') ? numBR(inp.value) : inp.value;
+    lista[i][f] = (f==='valor') ? numBR(inp.value) : inp.value;
   });
   document.querySelectorAll('#posTable [data-rm]').forEach(b=>b.onclick=()=>{
-    rfEntries.splice(+b.dataset.rm,1); renderRF();
+    lista.splice(+b.dataset.rm,1); renderRF();
   });
-  document.getElementById('rfAdd').onclick=()=>{ rfEntries.push({titulo:'Novo título',valor:0}); renderRF(); };
+  document.getElementById('rfAdd').onclick=()=>{ lista.push({titulo:'Novo título',valor:0}); renderRF(); };
   document.getElementById('rfSave').onclick=()=>{ saveRF(); recalc(); };
 }
 
@@ -1186,8 +1199,9 @@ async function saveSuno(){
   if(rows.length) await sb.from('cfg_suno').insert(rows);
 }
 async function saveRF(){
-  await sb.from('cfg_renda_fixa').delete().eq('owner_uid',UID);
-  const rows=rfEntries.map(r=>({owner_uid:UID,titulo:r.titulo,valor:Number(r.valor)||0}));
+  if(owner==='Consolidado') return;   // RF é editada na visão de cada titular
+  await sb.from('cfg_renda_fixa').delete().eq('owner_uid',UID).eq('titular',owner);
+  const rows=(rfByOwner[owner]||[]).map(r=>({owner_uid:UID,titular:owner,titulo:r.titulo,valor:Number(r.valor)||0}));
   if(rows.length) await sb.from('cfg_renda_fixa').insert(rows);
 }
 function saveAporte(o){
@@ -1313,7 +1327,8 @@ async function loadData(){
     suno[r.classe][r.ticker]={obj:(r.obj==null?null:N(r.obj)), rank:N(r.rank), status:r.status||''}; });
   sunoTxt={FIIs:LSget('suno_fiis_txt',''),Acoes:LSget('suno_acoes_txt','')};
 
-  rfEntries=rfR.map(r=>({titulo:r.titulo,valor:N(r.valor)}));
+  rfByOwner={Regis:[],Theo:[]};
+  rfR.forEach(r=>{ const t=(r.titular==='Theo')?'Theo':'Regis'; (rfByOwner[t]=rfByOwner[t]||[]).push({titulo:r.titulo,valor:N(r.valor)}); });
 
   aporteAll={}; OWNERS.forEach(o=>aporteAll[o]={});
   aporteR.forEach(r=>{ (aporteAll[r.titular]=aporteAll[r.titular]||{})[r.classe]=N(r.valor); });
