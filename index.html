@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.0 · 2026-06-25</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.1 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -351,14 +351,14 @@ const MESNOME=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov'
 function _acumular(meses,getRet){
   let acc=0; return meses.map(m=>{const r=getRet(m); if(r!=null) acc=(1+acc)*(1+r)-1; return acc*100;});
 }
-function chartEvolucao(serie,indicesObj,sel,meses){
+function chartEvolucao(serie,indicesObj,sel,meses,availW){
   if(!meses.length) return '<div class="sub" style="margin-top:8px">Sem histórico ainda — rode <code>--snapshot</code> no Pi/Mac p/ popular <code>patrimonio_mensal</code>.</div>';
   const retCart={}; serie.forEach(p=>retCart[p.mes]=p.ret_mes);
   const linhas=[{nome:'Carteira',cor:'var(--c-acoes)',w:2.6,pts:_acumular(meses,m=>retCart[m])}];
   IDX_DEF.forEach(ix=>{ if(!sel.has(ix.nome)) return;
     const mp=indicesObj[ix.key]||{};
     linhas.push({nome:ix.nome,cor:ix.cor,w:1.4,pts:_acumular(meses,m=>(m in mp?mp[m]:null))});});
-  const PL=42,PR=12,PT=12,PB=26,H=250,W=760, plotW=W-PL-PR, plotH=H-PT-PB;
+  const PL=42,PR=12,PT=12,PB=26,H=250,W=Math.max(480,Math.round(availW||980)), plotW=W-PL-PR, plotH=H-PT-PB;
   let lo=0,hi=0; linhas.forEach(l=>l.pts.forEach(v=>{lo=Math.min(lo,v);hi=Math.max(hi,v);}));
   if(hi-lo<1){hi+=1;lo-=1;}
   const pad=(hi-lo)*0.08; hi+=pad; lo-=pad;
@@ -381,7 +381,7 @@ function chartEvolucao(serie,indicesObj,sel,meses){
     g+=`<path d="${d}" fill="none" stroke="${l.cor}" stroke-width="${l.w}" stroke-linejoin="round"/>`;
     const li=l.pts.length-1;
     g+=`<circle cx="${X(li)}" cy="${Y(l.pts[li])}" r="${l.w+0.6}" fill="${l.cor}"><title>${l.nome}: ${l.pts[li].toFixed(1)}%</title></circle>`;});
-  return `<div style="overflow-x:auto;margin-top:8px"><svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:480px;max-width:${W}px">${g}</svg></div>`;
+  return `<div style="margin-top:8px"><svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block;width:100%;height:auto">${g}</svg></div>`;
 }
 
 // tabela ano x mes da rentabilidade da carteira (+ consolidado do ano)
@@ -514,7 +514,7 @@ function renderDash(){
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
         <span class="fbtn on" style="cursor:default;border-color:var(--c-acoes)">Carteira</span>${ixBtns}</div>
-      ${chartEvolucao(serie,idxObj,evolSel,mesesEvol)}
+      ${chartEvolucao(serie,idxObj,evolSel,mesesEvol,provW)}
       <div class="sub" style="margin-top:6px;opacity:.6">Retorno acumulado (time-weighted), líquido de aportes.</div></div>
     <div class="card" style="grid-column:1/-1"><h2>Rentabilidade mês a mês</h2>${tblRentMensal(serie)}</div>
     <div class="card" style="grid-column:1/-1">
