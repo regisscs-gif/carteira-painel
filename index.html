@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.3 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.4 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -557,11 +557,11 @@ function renderDash(){
       <div class="sub" style="margin-top:8px;opacity:.6">Barra cheia = atingiu o alvo · ▲ acima = passou do alvo</div></div>
     <div class="card" style="grid-column:1/-1">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <h2 style="margin:0">Evolução da rentabilidade${perLabel!=='Tudo'?' · '+perLabel:''}</h2>
+        <h2 style="margin:0">Evolução da rentabilidade — ${owner}${perLabel!=='Tudo'?' · '+perLabel:''}</h2>
         <div style="display:flex;gap:6px;flex-wrap:wrap">${perBtns}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-        <span class="fbtn on" style="cursor:default;border-color:var(--c-acoes)">Carteira</span>${ixBtns}</div>
+        <span class="fbtn on" style="cursor:default;border-color:var(--c-acoes)">Carteira (${owner})</span>${ixBtns}</div>
       ${chartEvolucao(serie,idxObj,evolSel,mesesEvol,provW)}
       <div class="sub" style="margin-top:6px;opacity:.6">Retorno acumulado (time-weighted), líquido de aportes.</div></div>
     <div class="card" style="grid-column:1/-1"><h2>Rentabilidade mês a mês</h2>${tblRentMensal(serie)}</div>
