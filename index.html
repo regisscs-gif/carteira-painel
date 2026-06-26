@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.2 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.3 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -198,7 +198,7 @@ const IDX_DEF=[{nome:'IBOV',key:'IBOV',cor:'var(--c-us)'},{nome:'CDI',key:'CDI',
   {nome:'IGP-M',key:'IGPM',cor:'var(--neg)'},{nome:'Poupança',key:'Poupanca',cor:'var(--mut)'}];
 let evolSel=new Set(['IBOV','CDI']);   // indices visiveis no grafico de evolucao
 let evolModel=null;                     // geometria do grafico p/ o hover (crosshair + tooltip)
-let evolPer='ano';                      // periodo: 'ano' (atual) | 'tudo' | 'AAAA'
+let evolAnos=null;                      // anos selecionados (Set); vazio = Tudo; null = ainda não iniciado
 let dashProvTk='Tudo';                  // filtro de ativo nos proventos do dashboard
 let provYearL='Todos';                  // aba Proventos (lista): filtro de ano
 let provFilterL={ativo:'',tipo:''};     // aba Proventos (lista): filtros por coluna
@@ -515,11 +515,16 @@ function renderDash(){
   const idxObj=(D.hist&&D.hist.indices)||{};
   const anosH=[...new Set(serie.map(p=>p.mes.slice(0,4)))].sort((a,b)=>b-a);
   const curY=String(new Date().getFullYear());
-  if(evolPer==='ano') evolPer = anosH.includes(curY)?curY:(anosH[0]||'tudo');
-  let mesesEvol=serie.map(p=>p.mes);
-  if(evolPer!=='tudo') mesesEvol=mesesEvol.filter(m=>m.slice(0,4)===evolPer);
-  mesesEvol.sort();
-  const perBtns=['tudo',...anosH].map(a=>`<button class="fbtn${a===evolPer?' on':''}" data-per="${a}">${a==='tudo'?'Tudo':a}</button>`).join('');
+  if(evolAnos===null) evolAnos=new Set(anosH.includes(curY)?[curY]:(anosH[0]?[anosH[0]]:[]));
+  // faixa efetiva = do menor ao maior ano selecionado (sequência contígua). Vazio = Tudo.
+  let loY=null,hiY=null;
+  if(evolAnos.size){ const a=[...evolAnos].sort(); loY=a[0]; hiY=a[a.length-1]; }
+  let mesesEvol=serie.map(p=>p.mes).filter(m=>!evolAnos.size||(m.slice(0,4)>=loY&&m.slice(0,4)<=hiY)).sort();
+  const perLabel = !evolAnos.size?'Tudo':(loY===hiY?loY:loY+'–'+hiY);
+  const perBtns=['tudo',...anosH].map(a=>{
+    const on = a==='tudo' ? !evolAnos.size : (evolAnos.size && a>=loY && a<=hiY);
+    return `<button class="fbtn${on?' on':''}" data-per="${a}">${a==='tudo'?'Tudo':a}</button>`;
+  }).join('');
   const ixBtns=IDX_DEF.map(ix=>`<button class="fbtn${evolSel.has(ix.nome)?' on':''}" data-ix="${ix.nome}" style="border-color:${ix.cor}">${ix.nome}</button>`).join('');
 
   // --- proventos no dashboard (filtro por ativo) ---
@@ -552,7 +557,7 @@ function renderDash(){
       <div class="sub" style="margin-top:8px;opacity:.6">Barra cheia = atingiu o alvo · ▲ acima = passou do alvo</div></div>
     <div class="card" style="grid-column:1/-1">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <h2 style="margin:0">Evolução da rentabilidade${evolPer!=='tudo'?' · '+evolPer:''}</h2>
+        <h2 style="margin:0">Evolução da rentabilidade${perLabel!=='Tudo'?' · '+perLabel:''}</h2>
         <div style="display:flex;gap:6px;flex-wrap:wrap">${perBtns}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
@@ -580,7 +585,13 @@ function renderDash(){
     const v=numBR(inp.value)/100;
     alvoClasseAll[owner][inp.dataset.c]=v; saveAlvo(owner,inp.dataset.c,v); recalc();
   });
-  document.querySelectorAll('#dash [data-per]').forEach(b=>b.onclick=()=>{evolPer=b.dataset.per;renderDash();});
+  document.querySelectorAll('#dash [data-per]').forEach(b=>b.onclick=()=>{
+    const a=b.dataset.per;
+    if(a==='tudo') evolAnos=new Set();                       // período inteiro
+    else if(!evolAnos.size) evolAnos=new Set([a]);           // vinha de "Tudo" → nova seleção
+    else if(evolAnos.has(a)) evolAnos.delete(a);             // desmarca
+    else evolAnos.add(a);                                    // estende a sequência
+    renderDash();});
   document.querySelectorAll('#dash [data-ix]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ix; evolSel.has(k)?evolSel.delete(k):evolSel.add(k); renderDash();});
   const ds=document.getElementById('dashProvSel'); if(ds) ds.onchange=()=>{dashProvTk=ds.value;renderDash();};
