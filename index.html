@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.5 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.6 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -432,7 +432,7 @@ function tblRentMensal(serie){
   if(!serie.length) return '<div class="sub">Sem histórico mensal ainda.</div>';
   const porAno={};
   serie.forEach(p=>{const a=p.mes.slice(0,4), mi=+p.mes.slice(5,7)-1; (porAno[a]=porAno[a]||Array(12).fill(null))[mi]=p.ret_mes;});
-  const anos=Object.keys(porAno).sort((a,b)=>b-a);
+  const anos=Object.keys(porAno).sort((a,b)=>a-b);   // anos em ordem crescente
   const celPct=v=>v==null?'<td class="sub" style="text-align:right">—</td>'
     :`<td class="${cls(v)}" style="text-align:right">${(v*100).toFixed(1).replace('.',',')}%</td>`;
   let t='<div style="overflow-x:auto"><table><thead><tr><th>Ano</th>'
