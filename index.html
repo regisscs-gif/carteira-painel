@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.15.1 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.15.2 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -821,19 +821,22 @@ function renderProv(){
   let yb='<div class="filters" style="margin:0 0 10px">';
   ['Todos',...anos].forEach(a=>{ yb+=`<div class="fbtn${a===provYearL?' on':''}" data-ano="${a}" style="cursor:pointer">${a}</div>`; });
   yb+='</div>';
-  // barra de filtros: Ativo (texto) + comboboxes Classe / Tipo / Origem (valores fixos)
+  // comboboxes (valores fixos) embaixo de cada coluna; Ativo = busca livre
   const opt=(arr,sel)=>arr.map(o=>{const v=Array.isArray(o)?o[0]:o, l=Array.isArray(o)?o[1]:o;
     return `<option value="${v}"${v===sel?' selected':''}>${l}</option>`;}).join('');
-  const fbar=`<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:0 0 12px">
-    <label class="sub">Ativo <input id="pfAtivo" value="${f.ativo}" placeholder="todos" style="width:80px;${FILTIN}"></label>
-    <label class="sub">Classe <select id="pfClasse" style="${FILTIN}">${opt([['Todas','Todas'],['Acoes','Ações'],['FIIs','FIIs'],['Stocks','Stocks']],f.classe)}</select></label>
-    <label class="sub">Tipo <select id="pfTipo" style="${FILTIN}">${opt(['Todos','Dividendo','Rendimento','JCP'],f.tipo)}</select></label>
-    <label class="sub">Origem <select id="pfOrigem" style="${FILTIN}">${opt(['Todas','Pago','Estimado'],f.origem)}</select></label>
-  </div>`;
+  const SELIN='width:100%;'+FILTIN;
   const fmtD=d=>{const p=String(d).slice(0,10).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d;};
   let t='<table><thead><tr>'
     +'<th>Data</th><th>Ativo</th><th>Classe</th><th>Tipo</th><th>Titular</th>'
-    +'<th style="text-align:right">Valor</th><th>Origem</th></tr></thead><tbody>';
+    +'<th style="text-align:right">Valor</th><th>Origem</th></tr>'
+    +`<tr>
+      <th></th>
+      <th><input id="pfAtivo" value="${f.ativo}" placeholder="todos" style="width:72px;${FILTIN}"></th>
+      <th><select id="pfClasse" style="${SELIN}">${opt([['Todas','Todas'],['Acoes','Ações'],['FIIs','FIIs'],['Stocks','Stocks']],f.classe)}</select></th>
+      <th><select id="pfTipo" style="${SELIN}">${opt(['Todos','Dividendo','Rendimento','JCP'],f.tipo)}</select></th>
+      <th></th><th></th>
+      <th><select id="pfOrigem" style="${SELIN}">${opt(['Todas','Pago','Estimado'],f.origem)}</select></th>
+     </tr></thead><tbody>`;
   rows.forEach(r=>{
     const cl=clOf(r);
     const isU=r.moeda==='USD';
@@ -856,7 +859,7 @@ function renderProv(){
         <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(nAtivos)}</div></div>
       </div></div>
     <div class="card"><h2>Histórico de proventos</h2>
-      ${yb}${fbar}<div style="overflow-x:auto">${t}</div></div>`;
+      ${yb}<div style="overflow-x:auto">${t}</div></div>`;
   box.querySelectorAll('[data-ano]').forEach(b=>b.onclick=()=>{ provYearL=b.dataset.ano; renderProv(); });
   const at=document.getElementById('pfAtivo');
   if(at) at.oninput=()=>{ provFilterL.ativo=at.value; const pos=at.selectionStart; renderProv();
