@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.14.0 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.14.1 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -448,21 +448,33 @@ function tblRentMensal(serie){
   return t+'</tbody></table></div>';
 }
 
-// tabela ano x mes de proventos recebidos (+ Media e Total do ano)
+// tabela ano x mes de proventos recebidos (+ Media e Total do ano); heatmap de cor por valor
 function tblProvMensal(cells){
   if(!cells.length) return '<div class="sub">Sem proventos.</div>';
   const porAno={};
   cells.forEach(c=>{const a=c.ano, mi=+c.mes.slice(5,7)-1; (porAno[a]=porAno[a]||Array(12).fill(0))[mi]+=c.valor;});
   const anos=Object.keys(porAno).sort((a,b)=>a-b);   // anos em ordem crescente
-  const cel=v=>`<td style="text-align:right">${v>0?fmtK(v):'<span class="sub">—</span>'}</td>`;
-  let t='<div style="overflow-x:auto"><table><thead><tr><th>Ano</th>'
-    +MESNOME.map(m=>`<th style="text-align:right">${m}</th>`).join('')
-    +'<th style="text-align:right">Média</th><th style="text-align:right">Total</th></tr></thead><tbody>';
+  const n2=v=>v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});  // R$ com 2 casas
+  let maxCel=0; anos.forEach(a=>porAno[a].forEach(v=>{ if(v>maxCel) maxCel=v; }));
+  const cel=v=>{ if(!(v>0)) return '<td style="text-align:right;color:var(--mut)">—</td>';
+    const al=(0.10+0.55*(maxCel?v/maxCel:0)).toFixed(3);   // intensidade ~ valor do mes
+    return `<td style="text-align:right;background:rgba(72,187,120,${al})">${n2(v)}</td>`; };
+  const colTot=Array(12).fill(0); let grand=0;
+  anos.forEach(a=>porAno[a].forEach((v,i)=>{colTot[i]+=v; grand+=v;}));
+  const th='padding:6px 10px;text-align:right;position:sticky;top:0';
+  let t='<div style="overflow-x:auto"><table style="border-collapse:collapse;white-space:nowrap"><thead>'
+    +`<tr><th style="text-align:left">Ano</th>${MESNOME.map(m=>`<th style="${th}">${m}</th>`).join('')}`
+    +`<th style="${th}">Média</th><th style="${th}">Total</th></tr></thead><tbody>`;
   anos.forEach(a=>{ const arr=porAno[a], tot=arr.reduce((s,v)=>s+v,0);
     t+=`<tr><td><b>${a}</b></td>${arr.map(cel).join('')}`
-      +`<td class="sub" style="text-align:right">${fmtK(tot/12)}</td>`
-      +`<td style="text-align:right"><b>${fmtK(tot)}</b></td></tr>`;});
-  return t+'</tbody></table><div class="sub" style="margin-top:6px">Valores em R$ · Média = Total ÷ 12 meses</div></div>';
+      +`<td style="text-align:right;color:var(--mut)">${n2(tot/12)}</td>`
+      +`<td style="text-align:right;font-weight:700;color:var(--pos)">${n2(tot)}</td></tr>`;});
+  // rodapé: total por mês (todos os anos) + total geral
+  t+=`<tr style="border-top:2px solid var(--line)"><td><b>Total</b></td>`
+    +colTot.map(v=>`<td style="text-align:right;font-weight:600">${v>0?n2(v):'—'}</td>`).join('')
+    +`<td style="text-align:right;color:var(--mut)">—</td>`
+    +`<td style="text-align:right;font-weight:800;color:var(--pos)">${n2(grand)}</td></tr>`;
+  return t+'</tbody></table></div><div class="sub" style="margin-top:6px">Valores em R$ · Média = Total ÷ 12 meses · cor mais forte = mais proventos no mês</div>';
 }
 
 /* ====================================================================
@@ -550,8 +562,10 @@ function renderDash(){
   const anoBtns=['Tudo',...anosP].map(a=>`<button class="fbtn${String(a)===String(dashProvAno)?' on':''}" data-provano="${a}">${a}</button>`).join('');
   const chips=[...dashProvSet].sort().map(t=>
     `<span class="fbtn on" style="cursor:default;padding:2px 6px">${t} <span data-rmtk="${t}" style="cursor:pointer;font-weight:700;margin-left:2px">✕</span></span>`).join('');
-  const provTitulo=[ dashProvSet.size?(dashProvSet.size<=3?[...dashProvSet].sort().join(', '):dashProvSet.size+' ativos'):'',
-                     dashProvAno!=='Tudo'?dashProvAno:'' ].filter(Boolean).join(' · ');
+  const provTitAtivos=dashProvSet.size?(dashProvSet.size<=3?[...dashProvSet].sort().join(', '):dashProvSet.size+' ativos'):'';
+  const provTitulo=[provTitAtivos, dashProvAno!=='Tudo'?dashProvAno:''].filter(Boolean).join(' · ');
+  // tabela mês a mês: respeita o filtro de ativos, mas sempre mostra todos os anos
+  const cellsAno=dashProvSet.size?P.cells.filter(c=>dashProvSet.has(c.ticker)):P.cells;
 
   document.getElementById('dash').innerHTML=`
     <div class="card" style="grid-column:1/-1">
@@ -599,7 +613,8 @@ function renderDash(){
       <h2 style="margin:16px 0 0;font-size:13px;color:var(--mut)">Por mês${provFiltrado?'':' (últimos 24)'}</h2>
       ${chartProvMensal(pv.por_mes,selAll,provW)}
       <h2 style="margin:14px 0 0;font-size:13px;color:var(--mut)">Acumulado por ativo</h2>
-      ${chartProvRanking(pv.por_ticker)}</div>`;
+      ${chartProvRanking(pv.por_ticker)}</div>
+    <div class="card" style="grid-column:1/-1"><h2>Proventos mês a mês${provTitAtivos?' · '+provTitAtivos:''}</h2>${tblProvMensal(cellsAno)}</div>`;
 
   document.querySelectorAll('#dash input[data-c]').forEach(inp=>inp.onchange=()=>{
     const v=numBR(inp.value)/100;
@@ -827,7 +842,6 @@ function renderProv(){
         <div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn" style="font-size:${estF>0?'':'13px'}">${estF>0?fmt(estF):'—'}</div></div>
         <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(nAtivos)}</div></div>
       </div></div>
-    <div class="card"><h2>Proventos mês a mês</h2>${tblProvMensal(cells)}</div>
     <div class="card"><h2>Histórico de proventos</h2>
       ${yb}<div style="overflow-x:auto">${t}</div></div>`;
   box.querySelectorAll('[data-ano]').forEach(b=>b.onclick=()=>{ provYearL=b.dataset.ano; renderProv(); });
