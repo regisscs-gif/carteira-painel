@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.15.0 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.15.1 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -206,7 +206,7 @@ let evolAnos=null;                      // anos selecionados (Set); vazio = Tudo
 let dashProvSet=new Set();              // ativos selecionados nos proventos do dashboard (vazio = todos)
 let dashProvAno='Tudo';                 // filtro de ano nos proventos do dashboard
 let provYearL='Todos';                  // aba Proventos (lista): filtro de ano
-let provFilterL={ativo:'',tipo:''};     // aba Proventos (lista): filtros por coluna
+let provFilterL={ativo:'',classe:'Todas',tipo:'Todos',origem:'Todas'};  // aba Proventos (lista): filtros
 
 // objetivo/rank/status efetivos da visao atual (manual sobrescreve Suno; ETF so manual)
 function effObj(tk,classe){const m=objManual[owner]||{}; if(m[tk]!=null) return m[tk];
@@ -796,36 +796,46 @@ function resumoSuno(){
 // Os graficos de proventos foram p/ o Dashboard (com filtro por ativo).
 function renderProv(){
   const box=document.getElementById('prov'); if(!box) return;
-  const raw=(D.provRaw&&D.provRaw[owner])||[];
-  const cells=(D.proventos[owner]||{cells:[]}).cells;
+  // Titular: as linhas 'Consolidado' são duplicatas de valor cheio -> na visão Consolidado
+  // montamos a lista de Regis+Theo (cada linha com o titular real; soma = Consolidado).
+  const PR=D.provRaw||{};
+  const raw = owner==='Consolidado' ? [...(PR.Regis||[]),...(PR.Theo||[])] : (PR[owner]||[]);
   const valBRL=p=>(p.moeda==='USD')?N(p.valor)*(D_fxUSD||1):N(p.valor);
+  const clOf=r=>(r.classe==='FIIs')?'FIIs':(r.classe==='Stocks')?'Stocks':'Acoes';   // classe exibida
   const anos=[...new Set(raw.map(r=>String(r.data).slice(0,4)))].sort().reverse();
   if(provYearL!=='Todos' && !anos.includes(provYearL)) provYearL='Todos';
   const f=provFilterL;
   let rows=raw.filter(r=>{
     if(provYearL!=='Todos' && String(r.data).slice(0,4)!==provYearL) return false;
     if(f.ativo && !String(r.ticker).toUpperCase().includes(f.ativo.toUpperCase())) return false;
-    if(f.tipo && !String(r.tipo).toUpperCase().includes(f.tipo.toUpperCase())) return false;
+    if(f.classe!=='Todas' && clOf(r)!==f.classe) return false;
+    if(f.tipo!=='Todos' && String(r.tipo)!==f.tipo) return false;
+    if(f.origem==='Pago' && r.fonte==='estimado') return false;
+    if(f.origem==='Estimado' && r.fonte!=='estimado') return false;
     return true;
   });
   rows.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(a.ticker).localeCompare(String(b.ticker)));
   const realF=rows.filter(r=>r.fonte!=='estimado').reduce((s,r)=>s+valBRL(r),0);
   const estF=rows.filter(r=>r.fonte==='estimado').reduce((s,r)=>s+valBRL(r),0);
   const nAtivos=new Set(rows.map(r=>r.ticker)).size;
-  let yb='<div class="filters" style="margin:0 0 12px">';
+  let yb='<div class="filters" style="margin:0 0 10px">';
   ['Todos',...anos].forEach(a=>{ yb+=`<div class="fbtn${a===provYearL?' on':''}" data-ano="${a}" style="cursor:pointer">${a}</div>`; });
   yb+='</div>';
+  // barra de filtros: Ativo (texto) + comboboxes Classe / Tipo / Origem (valores fixos)
+  const opt=(arr,sel)=>arr.map(o=>{const v=Array.isArray(o)?o[0]:o, l=Array.isArray(o)?o[1]:o;
+    return `<option value="${v}"${v===sel?' selected':''}>${l}</option>`;}).join('');
+  const fbar=`<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:0 0 12px">
+    <label class="sub">Ativo <input id="pfAtivo" value="${f.ativo}" placeholder="todos" style="width:80px;${FILTIN}"></label>
+    <label class="sub">Classe <select id="pfClasse" style="${FILTIN}">${opt([['Todas','Todas'],['Acoes','Ações'],['FIIs','FIIs'],['Stocks','Stocks']],f.classe)}</select></label>
+    <label class="sub">Tipo <select id="pfTipo" style="${FILTIN}">${opt(['Todos','Dividendo','Rendimento','JCP'],f.tipo)}</select></label>
+    <label class="sub">Origem <select id="pfOrigem" style="${FILTIN}">${opt(['Todas','Pago','Estimado'],f.origem)}</select></label>
+  </div>`;
   const fmtD=d=>{const p=String(d).slice(0,10).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d;};
   let t='<table><thead><tr>'
     +'<th>Data</th><th>Ativo</th><th>Classe</th><th>Tipo</th><th>Titular</th>'
-    +'<th style="text-align:right">Valor</th><th>Origem</th></tr>'
-    +`<tr><th></th>
-      <th><input id="pfAtivo" value="${f.ativo}" placeholder="ativo" style="width:64px;${FILTIN}"></th>
-      <th></th>
-      <th><input id="pfTipo" value="${f.tipo}" placeholder="tipo" style="width:74px;${FILTIN}"></th>
-      <th></th><th></th><th></th></tr></thead><tbody>`;
+    +'<th style="text-align:right">Valor</th><th>Origem</th></tr></thead><tbody>';
   rows.forEach(r=>{
-    const cl=(r.classe==='FIIs')?'FIIs':(r.classe==='Stocks')?'Stocks':'Acoes';
+    const cl=clOf(r);
     const isU=r.moeda==='USD';
     t+=`<tr>
       <td>${fmtD(r.data)}</td><td><b>${r.ticker}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
@@ -846,12 +856,13 @@ function renderProv(){
         <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(nAtivos)}</div></div>
       </div></div>
     <div class="card"><h2>Histórico de proventos</h2>
-      ${yb}<div style="overflow-x:auto">${t}</div></div>`;
+      ${yb}${fbar}<div style="overflow-x:auto">${t}</div></div>`;
   box.querySelectorAll('[data-ano]').forEach(b=>b.onclick=()=>{ provYearL=b.dataset.ano; renderProv(); });
-  const wire=(id,key)=>{ const el=document.getElementById(id); if(!el) return;
-    el.oninput=()=>{ provFilterL[key]=el.value; const pos=el.selectionStart; renderProv();
-      const ne=document.getElementById(id); if(ne){ ne.focus(); try{ne.setSelectionRange(pos,pos);}catch(e){}} }; };
-  wire('pfAtivo','ativo'); wire('pfTipo','tipo');
+  const at=document.getElementById('pfAtivo');
+  if(at) at.oninput=()=>{ provFilterL.ativo=at.value; const pos=at.selectionStart; renderProv();
+    const ne=document.getElementById('pfAtivo'); if(ne){ ne.focus(); try{ne.setSelectionRange(pos,pos);}catch(e){}} };
+  [['pfClasse','classe'],['pfTipo','tipo'],['pfOrigem','origem']].forEach(([id,key])=>{
+    const el=document.getElementById(id); if(el) el.onchange=()=>{ provFilterL[key]=el.value; renderProv(); }; });
 }
 
 /* ====================================================================
