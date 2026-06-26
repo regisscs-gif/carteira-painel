@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.1 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.2 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -197,6 +197,7 @@ const IDX_DEF=[{nome:'IBOV',key:'IBOV',cor:'var(--c-us)'},{nome:'CDI',key:'CDI',
   {nome:'Selic',key:'Selic',cor:'var(--c-stocks)'},{nome:'IPCA',key:'IPCA',cor:'var(--c-rf)'},
   {nome:'IGP-M',key:'IGPM',cor:'var(--neg)'},{nome:'Poupança',key:'Poupanca',cor:'var(--mut)'}];
 let evolSel=new Set(['IBOV','CDI']);   // indices visiveis no grafico de evolucao
+let evolModel=null;                     // geometria do grafico p/ o hover (crosshair + tooltip)
 let evolPer='ano';                      // periodo: 'ano' (atual) | 'tudo' | 'AAAA'
 let dashProvTk='Tudo';                  // filtro de ativo nos proventos do dashboard
 let provYearL='Todos';                  // aba Proventos (lista): filtro de ano
@@ -380,8 +381,50 @@ function chartEvolucao(serie,indicesObj,sel,meses,availW){
     const d=l.pts.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
     g+=`<path d="${d}" fill="none" stroke="${l.cor}" stroke-width="${l.w}" stroke-linejoin="round"/>`;
     const li=l.pts.length-1;
-    g+=`<circle cx="${X(li)}" cy="${Y(l.pts[li])}" r="${l.w+0.6}" fill="${l.cor}"><title>${l.nome}: ${l.pts[li].toFixed(1)}%</title></circle>`;});
-  return `<div style="margin-top:8px"><svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block;width:100%;height:auto">${g}</svg></div>`;
+    g+=`<circle cx="${X(li)}" cy="${Y(l.pts[li])}" r="${l.w+0.6}" fill="${l.cor}"/>`;});
+  // crosshair + marcadores p/ o hover (escondidos até o mouse entrar)
+  g+=`<line id="evolCross" x1="0" y1="${PT}" x2="0" y2="${H-PB}" stroke="var(--mut)" stroke-dasharray="4 3" style="display:none;pointer-events:none"/>`;
+  linhas.forEach((l,k)=>{ g+=`<circle id="evolDot${k}" r="3.6" fill="${l.cor}" stroke="var(--card)" stroke-width="1.2" style="display:none;pointer-events:none"/>`; });
+  // modelo (coords em unidades do viewBox) consumido por wireEvol()
+  evolModel={W:W,H:H,PT:PT,PB:PB,meses:meses,
+    xs:meses.map((_,i)=>X(i)),
+    series:linhas.map(l=>({nome:l.nome,cor:l.cor,vals:l.pts.slice(),ys:l.pts.map(Y)}))};
+  return `<div style="position:relative;margin-top:8px">
+    <svg id="evolSvg" width="100%" viewBox="0 0 ${W} ${H}" style="display:block;width:100%;height:auto">${g}</svg>
+    <div id="evolTip" style="display:none;position:absolute;pointer-events:none;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;z-index:10;min-width:128px;box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
+  </div>`;
+}
+
+// liga o hover do grafico de evolucao (crosshair + tooltip com % de cada serie na data)
+function wireEvol(){
+  const svg=document.getElementById('evolSvg'), tip=document.getElementById('evolTip'),
+        cross=document.getElementById('evolCross');
+  if(!svg||!tip||!cross||!evolModel) return;
+  const m=evolModel, dots=m.series.map((_,k)=>document.getElementById('evolDot'+k));
+  const wrap=svg.parentElement;
+  const pctBR=v=>(v>=0?'+':'')+v.toFixed(1).replace('.',',')+'%';
+  const move=(cx,cy)=>{
+    const rect=svg.getBoundingClientRect(); if(!rect.width) return;
+    const vbx=(cx-rect.left)*(m.W/rect.width);
+    let i=0,best=1e9; m.xs.forEach((x,k)=>{const d=Math.abs(x-vbx); if(d<best){best=d;i=k;}});
+    const x=m.xs[i];
+    cross.setAttribute('x1',x); cross.setAttribute('x2',x); cross.style.display='';
+    let rows='';
+    m.series.forEach((s,k)=>{ dots[k].setAttribute('cx',x); dots[k].setAttribute('cy',s.ys[i]); dots[k].style.display='';
+      rows+=`<div style="display:flex;justify-content:space-between;gap:12px;line-height:1.5">
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.cor};margin-right:5px"></span>${s.nome}</span>
+        <b class="${s.vals[i]>=0?'pos':'neg'}">${pctBR(s.vals[i])}</b></div>`;});
+    const [Y4,Mo]=m.meses[i].split('-');
+    tip.innerHTML=`<div class="sub" style="margin-bottom:4px">${MESNOME[+Mo-1]}/${Y4}</div>${rows}`;
+    tip.style.display='';
+    const wr=wrap.getBoundingClientRect(); const tw=tip.offsetWidth;
+    let left=cx-wr.left+16; if(left+tw>wr.width) left=cx-wr.left-tw-16; if(left<0) left=2;
+    tip.style.left=left+'px'; tip.style.top=Math.max(2,cy-wr.top-10)+'px';
+  };
+  svg.onmousemove=ev=>move(ev.clientX,ev.clientY);
+  svg.ontouchmove=ev=>{ if(ev.touches[0]){ move(ev.touches[0].clientX,ev.touches[0].clientY); ev.preventDefault(); } };
+  const hide=()=>{ tip.style.display='none'; cross.style.display='none'; dots.forEach(d=>d.style.display='none'); };
+  svg.onmouseleave=hide; svg.ontouchend=hide;
 }
 
 // tabela ano x mes da rentabilidade da carteira (+ consolidado do ano)
@@ -541,6 +584,7 @@ function renderDash(){
   document.querySelectorAll('#dash [data-ix]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ix; evolSel.has(k)?evolSel.delete(k):evolSel.add(k); renderDash();});
   const ds=document.getElementById('dashProvSel'); if(ds) ds.onchange=()=>{dashProvTk=ds.value;renderDash();};
+  wireEvol();
 }
 
 /* ====================================================================
