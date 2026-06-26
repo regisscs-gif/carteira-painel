@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.4 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.5 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1326,7 +1326,7 @@ function initPosUI(){
   const fd=document.getElementById('ownerSel'); fd.innerHTML='';
   OWNERS.forEach(v=>{
     const b=document.createElement('div'); b.className='fbtn'+(v===owner?' on':''); b.textContent=v;
-    b.onclick=()=>{owner=v;document.querySelectorAll('#ownerSel .fbtn').forEach(x=>x.classList.toggle('on',x===b));recalc();};
+    b.onclick=()=>{owner=v;evolAnos=null;dashProvTk='Tudo';document.querySelectorAll('#ownerSel .fbtn').forEach(x=>x.classList.toggle('on',x===b));recalc();};
     fd.appendChild(b);
   });
   document.getElementById('sunoFIIs').value=sunoTxt.FIIs;
