@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.12.0 · 2026-06-25</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.0 · 2026-06-25</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -192,6 +192,15 @@ let venderSet=new Set();    // tickers marcados manualmente p/ vender
 let movRows=[];             // ledger de movimentacoes (tabela movimentacao)
 let movYear='Todos';        // filtro de ano
 let movFilter={ativo:'',evento:'',titular:''};  // filtros por coluna
+// Dashboard: evolucao vs indices + proventos
+const IDX_DEF=[{nome:'IBOV',key:'IBOV',cor:'var(--c-us)'},{nome:'CDI',key:'CDI',cor:'var(--c-fiis)'},
+  {nome:'Selic',key:'Selic',cor:'var(--c-stocks)'},{nome:'IPCA',key:'IPCA',cor:'var(--c-rf)'},
+  {nome:'IGP-M',key:'IGPM',cor:'var(--neg)'},{nome:'Poupança',key:'Poupanca',cor:'var(--mut)'}];
+let evolSel=new Set(['IBOV','CDI']);   // indices visiveis no grafico de evolucao
+let evolPer='ano';                      // periodo: 'ano' (atual) | 'tudo' | 'AAAA'
+let dashProvTk='Tudo';                  // filtro de ativo nos proventos do dashboard
+let provYearL='Todos';                  // aba Proventos (lista): filtro de ano
+let provFilterL={ativo:'',tipo:''};     // aba Proventos (lista): filtros por coluna
 
 // objetivo/rank/status efetivos da visao atual (manual sobrescreve Suno; ETF so manual)
 function effObj(tk,classe){const m=objManual[owner]||{}; if(m[tk]!=null) return m[tk];
@@ -236,7 +245,8 @@ function extrairRanking(texto){
 /* ====================================================================
    Donut SVG
 ==================================================================== */
-function donut(items){
+function donut(items,max){
+  max=max||320;
   const tot=items.reduce((s,i)=>s+i.valor,0)||1, R=70, C=2*Math.PI*R; let off=0;
   let arcs='';
   items.forEach(i=>{
@@ -245,7 +255,9 @@ function donut(items){
       stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 90 90)"/>`;
     off+=len;
   });
-  return `<svg viewBox="0 0 180 180" width="180" height="180">${arcs}
+  // responsivo: escala com a area do container (width:100%), limitado por max px
+  return `<svg viewBox="0 0 180 180" width="100%" preserveAspectRatio="xMidYMid meet"
+    style="display:block;width:100%;height:auto;max-width:${max}px;margin:0 auto">${arcs}
     <circle r="52" cx="90" cy="90" fill="var(--card)"/></svg>`;
 }
 
@@ -316,6 +328,98 @@ function chartProvRanking(rows){
   return `<div style="overflow-x:auto"><svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:${Math.round(W*0.7)}px;max-width:${W}px">${g}</svg></div>`;
 }
 
+// agrega celulas de proventos (ticker,mes) em series p/ os graficos
+function provView(cells,limMeses){
+  const blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0},Stocks:{real:0,est:0}});
+  const mesMap={};
+  cells.forEach(c=>{const m=mesMap[c.mes]=mesMap[c.mes]||blankCls(); m[c.classe].real+=c.real; m[c.classe].est+=c.est;});
+  let por_mes=Object.keys(mesMap).sort().map(k=>({mes:k,cls:mesMap[k]}));
+  if(limMeses && por_mes.length>limMeses) por_mes=por_mes.slice(-limMeses);
+  const tkMap={};
+  cells.forEach(c=>{const t=tkMap[c.ticker]=tkMap[c.ticker]||{ticker:c.ticker,classe:c.classe,real:0,est:0,valor:0};
+    t.real+=c.real; t.est+=c.est; t.valor+=c.valor;});
+  const por_ticker=Object.values(tkMap).sort((a,b)=>b.valor-a.valor);
+  const realF=cells.reduce((s,c)=>s+c.real,0), estF=cells.reduce((s,c)=>s+c.est,0);
+  return {por_mes,por_ticker,realF,estF};
+}
+
+/* ====================================================================
+   Evolucao da rentabilidade (TWR) x indices — grafico de linha
+==================================================================== */
+const MESNOME=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+// encadeia retornos mensais (fracao) -> retorno acumulado (%) alinhado aos meses
+function _acumular(meses,getRet){
+  let acc=0; return meses.map(m=>{const r=getRet(m); if(r!=null) acc=(1+acc)*(1+r)-1; return acc*100;});
+}
+function chartEvolucao(serie,indicesObj,sel,meses){
+  if(!meses.length) return '<div class="sub" style="margin-top:8px">Sem histórico ainda — rode <code>--snapshot</code> no Pi/Mac p/ popular <code>patrimonio_mensal</code>.</div>';
+  const retCart={}; serie.forEach(p=>retCart[p.mes]=p.ret_mes);
+  const linhas=[{nome:'Carteira',cor:'var(--c-acoes)',w:2.6,pts:_acumular(meses,m=>retCart[m])}];
+  IDX_DEF.forEach(ix=>{ if(!sel.has(ix.nome)) return;
+    const mp=indicesObj[ix.key]||{};
+    linhas.push({nome:ix.nome,cor:ix.cor,w:1.4,pts:_acumular(meses,m=>(m in mp?mp[m]:null))});});
+  const PL=42,PR=12,PT=12,PB=26,H=250,W=760, plotW=W-PL-PR, plotH=H-PT-PB;
+  let lo=0,hi=0; linhas.forEach(l=>l.pts.forEach(v=>{lo=Math.min(lo,v);hi=Math.max(hi,v);}));
+  if(hi-lo<1){hi+=1;lo-=1;}
+  const pad=(hi-lo)*0.08; hi+=pad; lo-=pad;
+  const n=meses.length;
+  const X=i=>PL+(n<=1?plotW/2:plotW*i/(n-1));
+  const Y=v=>PT+plotH*(1-(v-lo)/(hi-lo));
+  let g='';
+  // grade Y (~5 ticks) + linha do zero realcada
+  const nt=5; for(let k=0;k<=nt;k++){const v=lo+(hi-lo)*k/nt, yy=Y(v);
+    g+=`<line x1="${PL}" y1="${yy}" x2="${W-PR}" y2="${yy}" stroke="var(--line)"/>`;
+    g+=`<text x="${PL-5}" y="${yy+3}" text-anchor="end" font-size="9" fill="var(--mut)">${v.toFixed(0)}%</text>`;}
+  if(lo<0&&hi>0){const yz=Y(0); g+=`<line x1="${PL}" y1="${yz}" x2="${W-PR}" y2="${yz}" stroke="var(--mut)" stroke-dasharray="3 3"/>`;}
+  // rotulos X (até ~12 meses, senao espaçados)
+  const step=Math.ceil(n/12);
+  meses.forEach((m,i)=>{ if(i%step) return; const [Y4,Mo]=m.split('-');
+    g+=`<text x="${X(i)}" y="${H-PB+14}" text-anchor="middle" font-size="9" fill="var(--mut)">${MESNOME[+Mo-1]}/${Y4.slice(2)}</text>`;});
+  // linhas
+  linhas.forEach(l=>{
+    const d=l.pts.map((v,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    g+=`<path d="${d}" fill="none" stroke="${l.cor}" stroke-width="${l.w}" stroke-linejoin="round"/>`;
+    const li=l.pts.length-1;
+    g+=`<circle cx="${X(li)}" cy="${Y(l.pts[li])}" r="${l.w+0.6}" fill="${l.cor}"><title>${l.nome}: ${l.pts[li].toFixed(1)}%</title></circle>`;});
+  return `<div style="overflow-x:auto;margin-top:8px"><svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:480px;max-width:${W}px">${g}</svg></div>`;
+}
+
+// tabela ano x mes da rentabilidade da carteira (+ consolidado do ano)
+function tblRentMensal(serie){
+  if(!serie.length) return '<div class="sub">Sem histórico mensal ainda.</div>';
+  const porAno={};
+  serie.forEach(p=>{const a=p.mes.slice(0,4), mi=+p.mes.slice(5,7)-1; (porAno[a]=porAno[a]||Array(12).fill(null))[mi]=p.ret_mes;});
+  const anos=Object.keys(porAno).sort((a,b)=>b-a);
+  const celPct=v=>v==null?'<td class="sub" style="text-align:right">—</td>'
+    :`<td class="${cls(v)}" style="text-align:right">${(v*100).toFixed(1).replace('.',',')}%</td>`;
+  let t='<div style="overflow-x:auto"><table><thead><tr><th>Ano</th>'
+    +MESNOME.map(m=>`<th style="text-align:right">${m}</th>`).join('')
+    +'<th style="text-align:right">Ano</th></tr></thead><tbody>';
+  anos.forEach(a=>{ const arr=porAno[a];
+    let acc=null; arr.forEach(v=>{ if(v!=null) acc=(1+(acc||0))*(1+v)-1; });
+    t+=`<tr><td><b>${a}</b></td>${arr.map(celPct).join('')}`
+      +(acc==null?'<td class="sub" style="text-align:right">—</td>'
+        :`<td class="${cls(acc)}" style="text-align:right"><b>${(acc*100).toFixed(1).replace('.',',')}%</b></td>`)+'</tr>';});
+  return t+'</tbody></table></div>';
+}
+
+// tabela ano x mes de proventos recebidos (+ Media e Total do ano)
+function tblProvMensal(cells){
+  if(!cells.length) return '<div class="sub">Sem proventos.</div>';
+  const porAno={};
+  cells.forEach(c=>{const a=c.ano, mi=+c.mes.slice(5,7)-1; (porAno[a]=porAno[a]||Array(12).fill(0))[mi]+=c.valor;});
+  const anos=Object.keys(porAno).sort((a,b)=>b-a);
+  const cel=v=>`<td style="text-align:right">${v>0?fmtK(v):'<span class="sub">—</span>'}</td>`;
+  let t='<div style="overflow-x:auto"><table><thead><tr><th>Ano</th>'
+    +MESNOME.map(m=>`<th style="text-align:right">${m}</th>`).join('')
+    +'<th style="text-align:right">Média</th><th style="text-align:right">Total</th></tr></thead><tbody>';
+  anos.forEach(a=>{ const arr=porAno[a], tot=arr.reduce((s,v)=>s+v,0);
+    t+=`<tr><td><b>${a}</b></td>${arr.map(cel).join('')}`
+      +`<td class="sub" style="text-align:right">${fmtK(tot/12)}</td>`
+      +`<td style="text-align:right"><b>${fmtK(tot)}</b></td></tr>`;});
+  return t+'</tbody></table><div class="sub" style="margin-top:6px">Valores em R$ · Média = Total ÷ 12 meses</div></div>';
+}
+
 /* ====================================================================
    recalc central (alocacao + total a partir de posicoes + RF)
 ==================================================================== */
@@ -339,32 +443,104 @@ function renderDash(){
   const alvoClasse=alvoClasseAll[owner];
   const showAlvo=owner!=='Consolidado';
   const items=CLASSES.map(c=>({label:c,valor:valClasse[c],cor:CLASSE_COR[c]}));
+  // --- KPIs do topo ---
+  const valorMercado=totalGeral;
+  const custoPos=(D.posicoes[owner]||[]).reduce((s,p)=>s+N(p.custo),0);
+  const valorAquisicao=custoPos+valClasse['Renda Fixa'];
+  const lucroNaoReal=valorMercado-valorAquisicao;
+  const lucroOper=Object.values(D.irpf.ganhos||{}).reduce((s,g)=>s+N(g.ganho),0);  // realizado (consolidado)
+  // --- barras de alocacao (preenchidas em relacao ao ALVO; cheia = bateu o alvo) ---
   let leg='<div class="legend">';
   CLASSES.forEach(c=>{
     const atual=totalGeral?valClasse[c]/totalGeral:0, alvo=alvoClasse[c]||0, diff=(atual-alvo)*100;
+    const fill=alvo>0?Math.min(atual/alvo*100,100):Math.min(atual*100,100);
+    const over=alvo>0&&atual>alvo+1e-6;
     leg+=`<div>
       <div class="legrow">
         <span><span class="pill" style="background:${CLASSE_COR[c]}"></span>${TIPO_LABEL[c]}</span>
-        <span><b>${fmt(valClasse[c])}</b> <span class="sub">${pct(atual*100)}</span></span>
+        <span><b>${fmt(valClasse[c])}</b> <span class="sub">${pct(atual*100)}</span>${over?' <span style="color:var(--c-stocks);font-weight:700">▲ acima</span>':''}</span>
       </div>
-      <div class="barwrap"><div class="bar" style="width:${Math.min(atual*100,100)}%;background:${CLASSE_COR[c]}"></div></div>
-      ${showAlvo?`<div class="sub" style="margin-top:3px">alvo <input data-c="${c}" value="${(alvo*100).toFixed(1)}" style="width:48px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:1px 4px;text-align:right">% · <span class="${cls(diff)}">${(diff>0?'+':'')+diff.toFixed(1)}%</span></div>`:''}
+      <div class="barwrap"><div class="bar" style="width:${fill}%;background:${CLASSE_COR[c]}${over?';box-shadow:inset 0 0 0 1px var(--c-stocks)':''}"></div></div>
+      ${alvo>0?`<div class="sub" style="margin-top:3px">${showAlvo?`alvo <input data-c="${c}" value="${(alvo*100).toFixed(1)}" style="width:48px;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:1px 4px;text-align:right">%`:`alvo ${(alvo*100).toFixed(1)}%`} · <span class="${cls(diff)}">${(diff>0?'+':'')+diff.toFixed(1)}%</span></div>`:''}
     </div>`;
   });
   leg+='</div>';
   const somaAlvo=CLASSES.reduce((s,c)=>s+(alvoClasse[c]||0),0);
+
+  // --- evolucao x indices ---
+  const serie=(D.hist&&D.hist.patr[owner])||[];
+  const idxObj=(D.hist&&D.hist.indices)||{};
+  const anosH=[...new Set(serie.map(p=>p.mes.slice(0,4)))].sort((a,b)=>b-a);
+  const curY=String(new Date().getFullYear());
+  if(evolPer==='ano') evolPer = anosH.includes(curY)?curY:(anosH[0]||'tudo');
+  let mesesEvol=serie.map(p=>p.mes);
+  if(evolPer!=='tudo') mesesEvol=mesesEvol.filter(m=>m.slice(0,4)===evolPer);
+  mesesEvol.sort();
+  const perBtns=['tudo',...anosH].map(a=>`<button class="fbtn${a===evolPer?' on':''}" data-per="${a}">${a==='tudo'?'Tudo':a}</button>`).join('');
+  const ixBtns=IDX_DEF.map(ix=>`<button class="fbtn${evolSel.has(ix.nome)?' on':''}" data-ix="${ix.nome}" style="border-color:${ix.cor}">${ix.nome}</button>`).join('');
+
+  // --- proventos no dashboard (filtro por ativo) ---
+  const P=D.proventos[owner]||{cells:[],anos:[]};
+  const tickersP=[...new Set(P.cells.map(c=>c.ticker))].sort();
+  if(dashProvTk!=='Tudo' && !tickersP.includes(dashProvTk)) dashProvTk='Tudo';
+  const cellsP=dashProvTk==='Tudo'?P.cells:P.cells.filter(c=>c.ticker===dashProvTk);
+  const pv=provView(cellsP, dashProvTk==='Tudo'?24:0);
+  const selAll=new Set(['FIIs','Acoes','Stocks']);
+  const provW=Math.max(320,((document.querySelector('.wrap')||{}).clientWidth||1084)-72);
+  const tkOpts=['Tudo',...tickersP].map(t=>`<option value="${t}"${t===dashProvTk?' selected':''}>${t}</option>`).join('');
+
   document.getElementById('dash').innerHTML=`
-    <div class="card" style="display:flex;gap:20px;align-items:center;justify-content:center;flex-wrap:wrap">
-      <div style="position:relative;text-align:center">${donut(items)}
+    <div class="card" style="grid-column:1/-1">
+      <div class="kpi">
+        <div class="kpibox"><div class="l">Valor de mercado</div><div class="v">${fmt(valorMercado)}</div>
+          <div class="sub ${cls(lucroNaoReal)}">${sig(lucroNaoReal)} não realizado</div></div>
+        <div class="kpibox"><div class="l">Valor de aquisição</div><div class="v">${fmt(valorAquisicao)}</div>
+          <div class="sub">quanto custou montar</div></div>
+        <div class="kpibox"><div class="l">Lucro com operações</div><div class="v ${cls(lucroOper)}">${fmt(lucroOper)}</div>
+          <div class="sub">vendas realizadas (consolidado)</div></div>
+      </div></div>
+    <div class="card" style="display:flex;align-items:center;justify-content:center">
+      <div style="position:relative;width:100%;max-width:300px">${donut(items,300)}
         <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">
           <div class="sub">total</div><div style="font-weight:800;font-size:15px">${fmt(totalGeral)}</div></div>
       </div></div>
     <div class="card"><h2>Alocação por classe — ${owner}${showAlvo?' (alvo editável)':''}</h2>${leg}
-      ${showAlvo?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">${somaChip('Soma dos alvos', somaAlvo)}</div>`:''}</div>`;
+      ${showAlvo?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">${somaChip('Soma dos alvos', somaAlvo)}</div>`:''}
+      <div class="sub" style="margin-top:8px;opacity:.6">Barra cheia = atingiu o alvo · ▲ acima = passou do alvo</div></div>
+    <div class="card" style="grid-column:1/-1">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0">Evolução da rentabilidade${evolPer!=='tudo'?' · '+evolPer:''}</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${perBtns}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <span class="fbtn on" style="cursor:default;border-color:var(--c-acoes)">Carteira</span>${ixBtns}</div>
+      ${chartEvolucao(serie,idxObj,evolSel,mesesEvol)}
+      <div class="sub" style="margin-top:6px;opacity:.6">Retorno acumulado (time-weighted), líquido de aportes.</div></div>
+    <div class="card" style="grid-column:1/-1"><h2>Rentabilidade mês a mês</h2>${tblRentMensal(serie)}</div>
+    <div class="card" style="grid-column:1/-1">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <h2 style="margin:0">Proventos${dashProvTk!=='Tudo'?' · '+dashProvTk:''}</h2>
+        <label class="sub">Ativo: <select id="dashProvSel" style="background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:3px 6px">${tkOpts}</select></label>
+      </div>
+      <div class="kpi">
+        <div class="kpibox"><div class="l">Total (pago + estimado)</div><div class="v">${fmt(pv.realF+pv.estF)}</div></div>
+        <div class="kpibox"><div class="l">Pago (real)</div><div class="v">${fmt(pv.realF)}</div></div>
+        <div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn" style="font-size:${pv.estF>0?'':'13px'}">${pv.estF>0?fmt(pv.estF):'—'}</div></div>
+        <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(pv.por_ticker.length)}</div></div>
+      </div>
+      <h2 style="margin:16px 0 0;font-size:13px;color:var(--mut)">Por mês${dashProvTk==='Tudo'?' (últimos 24)':''}</h2>
+      ${chartProvMensal(pv.por_mes,selAll,provW)}
+      <h2 style="margin:14px 0 0;font-size:13px;color:var(--mut)">Acumulado por ativo</h2>
+      ${chartProvRanking(pv.por_ticker)}</div>`;
+
   document.querySelectorAll('#dash input[data-c]').forEach(inp=>inp.onchange=()=>{
     const v=numBR(inp.value)/100;
     alvoClasseAll[owner][inp.dataset.c]=v; saveAlvo(owner,inp.dataset.c,v); recalc();
   });
+  document.querySelectorAll('#dash [data-per]').forEach(b=>b.onclick=()=>{evolPer=b.dataset.per;renderDash();});
+  document.querySelectorAll('#dash [data-ix]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.ix; evolSel.has(k)?evolSel.delete(k):evolSel.add(k); renderDash();});
+  const ds=document.getElementById('dashProvSel'); if(ds) ds.onchange=()=>{dashProvTk=ds.value;renderDash();};
 }
 
 /* ====================================================================
@@ -508,60 +684,67 @@ function resumoSuno(){
 /* ====================================================================
    PROVENTOS
 ==================================================================== */
-const PROV_FILTROS={Tudo:['FIIs','Acoes','Stocks'],FIIs:['FIIs'],'Ações':['Acoes'],Stocks:['Stocks']};
-let provFiltro='Tudo', provAno='Tudo';
+// Aba Proventos: lista linha-a-linha (estilo Movimentacoes) + tabela mes a mes.
+// Os graficos de proventos foram p/ o Dashboard (com filtro por ativo).
 function renderProv(){
-  const p=D.proventos[owner]||{cells:[],anos:[]};
-  if(provAno!=='Tudo' && !p.anos.includes(provAno)) provAno='Tudo';  // ano some ao trocar de titular
-  const selArr=PROV_FILTROS[provFiltro]||PROV_FILTROS.Tudo, sel=new Set(selArr);
-  // filtro ano + classe sobre as celulas
-  const cellsF=p.cells.filter(c=>(provAno==='Tudo'||c.ano===provAno) && sel.has(c.classe));
-  // por mes (garante as classes p/ o chart)
-  const blankCls=()=>({FIIs:{real:0,est:0},Acoes:{real:0,est:0},Stocks:{real:0,est:0}});
-  const mesMap={};
-  cellsF.forEach(c=>{const m=mesMap[c.mes]=mesMap[c.mes]||blankCls(); m[c.classe].real+=c.real; m[c.classe].est+=c.est;});
-  let por_mes=Object.keys(mesMap).sort().map(k=>({mes:k,cls:mesMap[k]}));
-  if(provAno==='Tudo') por_mes=por_mes.slice(-24);
-  // por ticker (ranking)
-  const tkMap={};
-  cellsF.forEach(c=>{const t=tkMap[c.ticker]=tkMap[c.ticker]||{ticker:c.ticker,classe:c.classe,real:0,est:0,valor:0};
-    t.real+=c.real; t.est+=c.est; t.valor+=c.valor;});
-  const por_ticker=Object.values(tkMap).sort((a,b)=>b.valor-a.valor);
-  // KPIs
-  const realF=cellsF.reduce((s,c)=>s+c.real,0), estF=cellsF.reduce((s,c)=>s+c.est,0), totalF=realF+estF;
-  // botoes
-  const anoBtns=['Tudo',...p.anos].map(a=>`<button class="fbtn${String(a)===String(provAno)?' on':''}" data-ano="${a}">${a}</button>`).join('');
-  const clsBtns=Object.keys(PROV_FILTROS).map(k=>`<button class="fbtn${k===provFiltro?' on':''}" data-pf="${k}">${k}</button>`).join('');
-  const sfx=(provAno!=='Tudo'?' · '+provAno:'')+(provFiltro!=='Tudo'?' · '+provFiltro:'');
-  const leg='<div class="sub" style="margin-top:8px">'
-    +selArr.map(c=>`<span class="pill" style="background:${CLASSE_COR[c]}"></span>${TIPO_LABEL[c]}`).join(' &nbsp; ')
-    +' &nbsp;·&nbsp; <span style="opacity:.55">faixa clara = estimado (Yahoo)</span></div>';
-  const estBox = estF>0
-    ? `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn">${fmt(estF)}</div></div>`
-    : `<div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v sub" style="font-size:13px">—</div></div>`;
-  document.getElementById('prov').innerHTML=`
+  const box=document.getElementById('prov'); if(!box) return;
+  const raw=(D.provRaw&&D.provRaw[owner])||[];
+  const cells=(D.proventos[owner]||{cells:[]}).cells;
+  const valBRL=p=>(p.moeda==='USD')?N(p.valor)*(D_fxUSD||1):N(p.valor);
+  const anos=[...new Set(raw.map(r=>String(r.data).slice(0,4)))].sort().reverse();
+  if(provYearL!=='Todos' && !anos.includes(provYearL)) provYearL='Todos';
+  const f=provFilterL;
+  let rows=raw.filter(r=>{
+    if(provYearL!=='Todos' && String(r.data).slice(0,4)!==provYearL) return false;
+    if(f.ativo && !String(r.ticker).toUpperCase().includes(f.ativo.toUpperCase())) return false;
+    if(f.tipo && !String(r.tipo).toUpperCase().includes(f.tipo.toUpperCase())) return false;
+    return true;
+  });
+  rows.sort((a,b)=>String(b.data).localeCompare(String(a.data)) || String(a.ticker).localeCompare(String(b.ticker)));
+  const realF=rows.filter(r=>r.fonte!=='estimado').reduce((s,r)=>s+valBRL(r),0);
+  const estF=rows.filter(r=>r.fonte==='estimado').reduce((s,r)=>s+valBRL(r),0);
+  const nAtivos=new Set(rows.map(r=>r.ticker)).size;
+  let yb='<div class="filters" style="margin:0 0 12px">';
+  ['Todos',...anos].forEach(a=>{ yb+=`<div class="fbtn${a===provYearL?' on':''}" data-ano="${a}" style="cursor:pointer">${a}</div>`; });
+  yb+='</div>';
+  const fmtD=d=>{const p=String(d).slice(0,10).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d;};
+  let t='<table><thead><tr>'
+    +'<th>Data</th><th>Ativo</th><th>Classe</th><th>Tipo</th><th>Titular</th>'
+    +'<th style="text-align:right">Valor</th><th>Origem</th></tr>'
+    +`<tr><th></th>
+      <th><input id="pfAtivo" value="${f.ativo}" placeholder="ativo" style="width:64px;${FILTIN}"></th>
+      <th></th>
+      <th><input id="pfTipo" value="${f.tipo}" placeholder="tipo" style="width:74px;${FILTIN}"></th>
+      <th></th><th></th><th></th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    const cl=(r.classe==='FIIs')?'FIIs':(r.classe==='Stocks')?'Stocks':'Acoes';
+    const isU=r.moeda==='USD';
+    t+=`<tr>
+      <td>${fmtD(r.data)}</td><td><b>${r.ticker}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
+      <td><span class="pill" style="background:${CLASSE_COR[cl]}"></span>${TIPO_LABEL[cl]}</td>
+      <td>${r.tipo||''}</td><td>${r.titular||''}</td>
+      <td style="text-align:right">${fmt(valBRL(r))}</td>
+      <td class="sub">${r.fonte==='estimado'?'~ estimado':'✓ pago'}</td></tr>`;
+  });
+  t+='</tbody></table>';
+  box.innerHTML=`
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-        <h2 style="margin:0">Proventos — ${owner}</h2>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">${anoBtns}</div>
-      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <h2 style="margin:0">Proventos — ${owner}</h2></div>
       <div class="kpi">
-        <div class="kpibox"><div class="l">Total (pago + estimado)</div><div class="v">${fmt(totalF)}</div></div>
+        <div class="kpibox"><div class="l">Total (pago + estimado)</div><div class="v">${fmt(realF+estF)}</div></div>
         <div class="kpibox"><div class="l">Pago (real)</div><div class="v">${fmt(realF)}</div></div>
-        ${estBox}
-        <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(por_ticker.length)}</div></div>
-      </div>
-    </div>
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <h2 style="margin:0">Proventos por mês${provAno!=='Tudo'?' · '+provAno:''}</h2>
-        <div style="display:flex;gap:6px">${clsBtns}</div>
-      </div>
-      ${chartProvMensal(por_mes,sel,Math.max(320,((document.querySelector('.wrap')||{}).clientWidth||1084)-72))}${leg}
-    </div>
-    <div class="card"><h2>Acumulado por ativo${sfx}</h2>${chartProvRanking(por_ticker)}</div>`;
-  document.querySelectorAll('#prov [data-ano]').forEach(b=>b.onclick=()=>{provAno=b.dataset.ano;renderProv();});
-  document.querySelectorAll('#prov [data-pf]').forEach(b=>b.onclick=()=>{provFiltro=b.dataset.pf;renderProv();});
+        <div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn" style="font-size:${estF>0?'':'13px'}">${estF>0?fmt(estF):'—'}</div></div>
+        <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(nAtivos)}</div></div>
+      </div></div>
+    <div class="card"><h2>Proventos mês a mês</h2>${tblProvMensal(cells)}</div>
+    <div class="card"><h2>Histórico de proventos</h2>
+      ${yb}<div style="overflow-x:auto">${t}</div></div>`;
+  box.querySelectorAll('[data-ano]').forEach(b=>b.onclick=()=>{ provYearL=b.dataset.ano; renderProv(); });
+  const wire=(id,key)=>{ const el=document.getElementById(id); if(!el) return;
+    el.oninput=()=>{ provFilterL[key]=el.value; const pos=el.selectionStart; renderProv();
+      const ne=document.getElementById(id); if(ne){ ne.focus(); try{ne.setSelectionRange(pos,pos);}catch(e){}} }; };
+  wire('pfAtivo','ativo'); wire('pfTipo','tipo');
 }
 
 /* ====================================================================
@@ -1004,6 +1187,15 @@ async function loadData(){
   provR.forEach(p=>{ (provByOwner[p.titular]=provByOwner[p.titular]||[]).push(p); });
   const proventos={}; OWNERS.forEach(o=>proventos[o]=aggOwner(provByOwner[o]||[]));
 
+  // historico mensal (patrimonio TWR + indices) — tolerante (tabelas podem nao existir)
+  const histPatr={Consolidado:[],Regis:[],Theo:[]}, histIdx={};
+  try{ (await grab('patrimonio_mensal')).forEach(r=>{
+        (histPatr[r.titular]=histPatr[r.titular]||[]).push({mes:r.mes,valor:N(r.valor),aporte:N(r.aporte),ret_mes:N(r.ret_mes)});});
+      Object.keys(histPatr).forEach(o=>histPatr[o].sort((a,b)=>a.mes.localeCompare(b.mes)));
+  }catch(e){ diag('patrimonio_mensal indisponivel: '+(e.message||e)); }
+  try{ (await grab('indice_mensal')).forEach(r=>{ (histIdx[r.indice]=histIdx[r.indice]||{})[r.mes]=N(r.ret_mes); });
+  }catch(e){ diag('indice_mensal indisponivel: '+(e.message||e)); }
+
   // irpf — Bens por ano (quebra por ano-base) e rendimentos de todos os anos
   const bensByYear={};
   bensR.forEach(b=>{ (bensByYear[b.ano_base]=bensByYear[b.ano_base]||{})[b.ticker]={
@@ -1026,7 +1218,8 @@ async function loadData(){
   D={ gerado_em: metaMap.precos_atualizado_em||metaMap.gerado_em||'—',
       refresh_iso: metaMap.refresh_em_iso||null, refresh_status: metaMap.refresh_status||'', refresh_msg: metaMap.refresh_msg||'',
       suno_iso: metaMap.suno_atualizado_em||null, suno_status: metaMap.suno_status||'',
-      posicoes, proventos, irpf:{ano_base:anoBase,bensByYear,ganhos,cfg:cfgIrpf,rend:rendAll,anos:anosIrpf} };
+      posicoes, proventos, provRaw:provByOwner, hist:{patr:histPatr,indices:histIdx},
+      irpf:{ano_base:anoBase,bensByYear,ganhos,cfg:cfgIrpf,rend:rendAll,anos:anosIrpf} };
   document.getElementById('gerado').textContent='atualizado em '+D.gerado_em+(D_fxUSD?(' · dólar R$ '+D_fxUSD.toFixed(2)):'');
   renderPiStatus(); renderSunoStatus();
 
