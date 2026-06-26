@@ -151,7 +151,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.7 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.13.8 · 2026-06-26</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -200,6 +200,7 @@ let evolSel=new Set(['IBOV','CDI']);   // indices visiveis no grafico de evoluca
 let evolModel=null;                     // geometria do grafico p/ o hover (crosshair + tooltip)
 let evolAnos=null;                      // anos selecionados (Set); vazio = Tudo; null = ainda não iniciado
 let dashProvSet=new Set();              // ativos selecionados nos proventos do dashboard (vazio = todos)
+let dashProvAno='Tudo';                 // filtro de ano nos proventos do dashboard
 let provYearL='Todos';                  // aba Proventos (lista): filtro de ano
 let provFilterL={ativo:'',tipo:''};     // aba Proventos (lista): filtros por coluna
 
@@ -527,20 +528,29 @@ function renderDash(){
   }).join('');
   const ixBtns=IDX_DEF.map(ix=>`<button class="fbtn${evolSel.has(ix.nome)?' on':''}" data-ix="${ix.nome}" style="border-color:${ix.cor}">${ix.nome}</button>`).join('');
 
-  // --- proventos no dashboard (filtro por ativo, multi-seleção) ---
+  // --- proventos no dashboard (filtro por ativo [multi] + ano; ativos agrupados por categoria) ---
   const P=D.proventos[owner]||{cells:[],anos:[]};
   const tickersP=[...new Set(P.cells.map(c=>c.ticker))].sort();
+  const tkClasse={}; P.cells.forEach(c=>tkClasse[c.ticker]=c.classe);   // ticker -> classe
   [...dashProvSet].forEach(t=>{ if(!tickersP.includes(t)) dashProvSet.delete(t); });  // limpa ativos que sumiram
-  const cellsP=dashProvSet.size?P.cells.filter(c=>dashProvSet.has(c.ticker)):P.cells;
-  const pv=provView(cellsP, dashProvSet.size?0:24);
+  const anosP=[...new Set(P.cells.map(c=>c.ano))].sort().reverse();
+  if(dashProvAno!=='Tudo' && !anosP.includes(dashProvAno)) dashProvAno='Tudo';
+  const cellsP=P.cells.filter(c=>(!dashProvSet.size||dashProvSet.has(c.ticker)) && (dashProvAno==='Tudo'||c.ano===dashProvAno));
+  const provFiltrado = dashProvSet.size || dashProvAno!=='Tudo';
+  const pv=provView(cellsP, provFiltrado?0:24);
   const selAll=new Set(['FIIs','Acoes','Stocks']);
   const provW=Math.max(320,((document.querySelector('.wrap')||{}).clientWidth||1084)-72);
-  // dropdown só com ativos ainda não escolhidos; chips removíveis p/ os já escolhidos
-  const tkOpts=['<option value="">+ adicionar ativo…</option>']
-    .concat(tickersP.filter(t=>!dashProvSet.has(t)).map(t=>`<option value="${t}">${t}</option>`)).join('');
+  // dropdown agrupado por categoria, só com ativos ainda não escolhidos
+  let tkOpts='<option value="">+ adicionar ativo…</option>';
+  [['Acoes','Ações'],['FIIs','FIIs'],['Stocks','Stocks']].forEach(([k,lbl])=>{
+    const ts=tickersP.filter(t=>!dashProvSet.has(t)&&tkClasse[t]===k);
+    if(ts.length) tkOpts+=`<optgroup label="${lbl}">`+ts.map(t=>`<option value="${t}">${t}</option>`).join('')+'</optgroup>';
+  });
+  const anoBtns=['Tudo',...anosP].map(a=>`<button class="fbtn${String(a)===String(dashProvAno)?' on':''}" data-provano="${a}">${a}</button>`).join('');
   const chips=[...dashProvSet].sort().map(t=>
     `<span class="fbtn on" style="cursor:default;padding:2px 6px">${t} <span data-rmtk="${t}" style="cursor:pointer;font-weight:700;margin-left:2px">✕</span></span>`).join('');
-  const provTitulo=dashProvSet.size?(dashProvSet.size<=3?[...dashProvSet].sort().join(', '):dashProvSet.size+' ativos'):'';
+  const provTitulo=[ dashProvSet.size?(dashProvSet.size<=3?[...dashProvSet].sort().join(', '):dashProvSet.size+' ativos'):'',
+                     dashProvAno!=='Tudo'?dashProvAno:'' ].filter(Boolean).join(' · ');
 
   document.getElementById('dash').innerHTML=`
     <div class="card" style="grid-column:1/-1">
@@ -578,13 +588,14 @@ function renderDash(){
           <label class="sub">Filtrar: <select id="dashProvSel" style="background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:3px 6px">${tkOpts}</select></label>
         </div>
       </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${anoBtns}</div>
       <div class="kpi">
         <div class="kpibox"><div class="l">Total (pago + estimado)</div><div class="v">${fmt(pv.realF+pv.estF)}</div></div>
         <div class="kpibox"><div class="l">Pago (real)</div><div class="v">${fmt(pv.realF)}</div></div>
         <div class="kpibox"><div class="l">Estimado (Yahoo)</div><div class="v warn" style="font-size:${pv.estF>0?'':'13px'}">${pv.estF>0?fmt(pv.estF):'—'}</div></div>
         <div class="kpibox"><div class="l">Ativos</div><div class="v">${fmt0(pv.por_ticker.length)}</div></div>
       </div>
-      <h2 style="margin:16px 0 0;font-size:13px;color:var(--mut)">Por mês${dashProvSet.size?'':' (últimos 24)'}</h2>
+      <h2 style="margin:16px 0 0;font-size:13px;color:var(--mut)">Por mês${provFiltrado?'':' (últimos 24)'}</h2>
       ${chartProvMensal(pv.por_mes,selAll,provW)}
       <h2 style="margin:14px 0 0;font-size:13px;color:var(--mut)">Acumulado por ativo</h2>
       ${chartProvRanking(pv.por_ticker)}</div>`;
@@ -605,6 +616,7 @@ function renderDash(){
   const ds=document.getElementById('dashProvSel'); if(ds) ds.onchange=()=>{ if(ds.value){ dashProvSet.add(ds.value); renderDash(); } };
   document.querySelectorAll('#dash [data-rmtk]').forEach(b=>b.onclick=()=>{ dashProvSet.delete(b.dataset.rmtk); renderDash(); });
   const pt=document.querySelector('#dash [data-provtodos]'); if(pt) pt.onclick=()=>{ dashProvSet.clear(); renderDash(); };
+  document.querySelectorAll('#dash [data-provano]').forEach(b=>b.onclick=()=>{ dashProvAno=b.dataset.provano; renderDash(); });
   wireEvol();
 }
 
@@ -1336,7 +1348,7 @@ function initPosUI(){
   const fd=document.getElementById('ownerSel'); fd.innerHTML='';
   OWNERS.forEach(v=>{
     const b=document.createElement('div'); b.className='fbtn'+(v===owner?' on':''); b.textContent=v;
-    b.onclick=()=>{owner=v;evolAnos=null;dashProvSet.clear();document.querySelectorAll('#ownerSel .fbtn').forEach(x=>x.classList.toggle('on',x===b));recalc();};
+    b.onclick=()=>{owner=v;evolAnos=null;dashProvSet.clear();dashProvAno='Tudo';document.querySelectorAll('#ownerSel .fbtn').forEach(x=>x.classList.toggle('on',x===b));recalc();};
     fd.appendChild(b);
   });
   document.getElementById('sunoFIIs').value=sunoTxt.FIIs;
