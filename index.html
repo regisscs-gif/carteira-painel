@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.15.2 · 2026-06-26</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.15.3 · 2026-06-29</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -195,7 +195,7 @@ let aporteAll={};           // {owner:{classe:valor}}
 let venderSet=new Set();    // tickers marcados manualmente p/ vender
 let movRows=[];             // ledger de movimentacoes (tabela movimentacao)
 let movYear='Todos';        // filtro de ano
-let movFilter={ativo:'',evento:'',titular:''};  // filtros por coluna
+let movFilter={ativo:'',evento:'Todos',titular:'Todos',corretora:'Todos',origem:'Todos'};  // filtros por coluna
 // Dashboard: evolucao vs indices + proventos
 const IDX_DEF=[{nome:'IBOV',key:'IBOV',cor:'var(--c-us)'},{nome:'CDI',key:'CDI',cor:'var(--c-fiis)'},
   {nome:'Selic',key:'Selic',cor:'var(--c-stocks)'},{nome:'IPCA',key:'IPCA',cor:'var(--c-rf)'},
@@ -494,6 +494,7 @@ function recalc(){
   renderPos();
   renderProv();
   renderAporte();
+  renderMov();   // Movimentações respeita a Visão (owner)
 }
 
 /* ====================================================================
@@ -884,10 +885,13 @@ function renderMov(){
   if(movYear!=='Todos' && !anos.includes(movYear)) movYear='Todos';
   const f=movFilter;
   let rows=movRows.filter(r=>{
+    if(owner!=='Consolidado' && r.titular!==owner) return false;   // Visão (Consolidado/Regis/Theo)
     if(movYear!=='Todos' && String(r.data).slice(0,4)!==movYear) return false;
     if(f.ativo && !String(r.ativo).toUpperCase().includes(f.ativo.toUpperCase())) return false;
-    if(f.evento && !String(r.evento).toUpperCase().includes(f.evento.toUpperCase())) return false;
-    if(f.titular && !String(r.titular).toUpperCase().includes(f.titular.toUpperCase())) return false;
+    if(f.evento!=='Todos' && r.evento!==f.evento) return false;
+    if(f.titular!=='Todos' && r.titular!==f.titular) return false;
+    if(f.corretora!=='Todos' && (r.corretora||'')!==f.corretora) return false;
+    if(f.origem!=='Todos' && (r.fonte||'')!==f.origem) return false;
     return true;
   });
   rows.sort((a,b)=> String(b.data).localeCompare(String(a.data)) || (N(b.id)-N(a.id)));
@@ -897,15 +901,23 @@ function renderMov(){
   ['Todos',...anos].forEach(a=>{ yb+=`<div class="fbtn${a===movYear?' on':''}" data-ano="${a}" style="cursor:pointer">${a}</div>`; });
   yb+='</div>';
   const fmtD=d=>{const p=String(d).slice(0,10).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d;};
+  // comboboxes (valores fixos vindos dos dados) sob cada coluna; Ativo = busca livre
+  const SELIN='width:100%;'+FILTIN;
+  const distinct=k=>[...new Set(movRows.map(r=>r[k]).filter(Boolean))].sort();
+  const origemLabel=v=> v==='nota'?'📄 nota':(v==='seed'?'histórico':v);
+  const mkSel=(id,key,vals,lab)=>`<select id="${id}" style="${SELIN}">`
+    +['Todos',...vals].map(v=>`<option value="${v}"${v===f[key]?' selected':''}>${v==='Todos'?'Todos':(lab?lab(v):v)}</option>`).join('')+'</select>';
   let t='<table><thead><tr>'
     +'<th>Data</th><th>Ativo</th><th>Evento</th><th>Titular</th><th>Corretora</th>'
     +'<th style="text-align:right">Qtd</th><th style="text-align:right">Preço</th>'
     +'<th style="text-align:right">Taxas</th><th style="text-align:right">Total</th><th>Origem</th></tr>'
     +`<tr><th></th>
-      <th><input id="fAtivo" value="${f.ativo}" placeholder="ativo" style="width:64px;${FILTIN}"></th>
-      <th><input id="fEvento" value="${f.evento}" placeholder="evento" style="width:74px;${FILTIN}"></th>
-      <th><input id="fTitular" value="${f.titular}" placeholder="titular" style="width:56px;${FILTIN}"></th>
-      <th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
+      <th><input id="fAtivo" value="${f.ativo}" placeholder="todos" style="width:64px;${FILTIN}"></th>
+      <th>${mkSel('fEvento','evento',distinct('evento'))}</th>
+      <th>${mkSel('fTitular','titular',distinct('titular'))}</th>
+      <th>${mkSel('fCorretora','corretora',distinct('corretora'))}</th>
+      <th></th><th></th><th></th><th></th>
+      <th>${mkSel('fOrigem','origem',distinct('fonte'),origemLabel)}</th></tr></thead><tbody>`;
   rows.forEach(r=>{
     const cor=EVENTO_COR[r.evento]||'var(--txt)';
     const isU=r.moeda==='USD', money=v=>isU?fmtU(v):fmt(v), strip=v=>money(v).replace(isU?'US$ ':'R$ ','');
@@ -928,10 +940,11 @@ function renderMov(){
       <div class="kpibox"><div class="l">Taxas no período</div><div class="v" style="font-size:18px">${fmt(totTax)}</div></div>
     </div>${yb}<div style="overflow-x:auto">${t}</div>`;
   box.querySelectorAll('[data-ano]').forEach(b=>b.onclick=()=>{ movYear=b.dataset.ano; renderMov(); });
-  const wire=(id,key)=>{ const el=document.getElementById(id); if(!el) return;
-    el.oninput=()=>{ movFilter[key]=el.value; const pos=el.selectionStart; renderMov();
-      const ne=document.getElementById(id); if(ne){ ne.focus(); try{ne.setSelectionRange(pos,pos);}catch(e){}} }; };
-  wire('fAtivo','ativo'); wire('fEvento','evento'); wire('fTitular','titular');
+  const at=document.getElementById('fAtivo');
+  if(at) at.oninput=()=>{ movFilter.ativo=at.value; const pos=at.selectionStart; renderMov();
+    const ne=document.getElementById('fAtivo'); if(ne){ ne.focus(); try{ne.setSelectionRange(pos,pos);}catch(e){}} };
+  [['fEvento','evento'],['fTitular','titular'],['fCorretora','corretora'],['fOrigem','origem']].forEach(([id,key])=>{
+    const el=document.getElementById(id); if(el) el.onchange=()=>{ movFilter[key]=el.value; renderMov(); }; });
 }
 
 /* ====================================================================
@@ -1416,7 +1429,7 @@ function buildTabs(){
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));
     ['dash','pos','prov','mov','irpf','tools'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==t.dataset.t));
-    document.getElementById('ownerSel').parentElement.style.visibility = (t.dataset.t==='irpf'||t.dataset.t==='mov')?'hidden':'visible';
+    document.getElementById('ownerSel').parentElement.style.visibility = (t.dataset.t==='irpf')?'hidden':'visible';
     if(t.dataset.t==='mov') renderMov();
   });
 }
