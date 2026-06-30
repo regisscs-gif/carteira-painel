@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.16.0 · 2026-06-29</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.17.0 · 2026-06-30</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -193,6 +193,7 @@ let suno={FIIs:{},Acoes:{}};
 let sunoTxt={FIIs:'',Acoes:''};
 let aporteAll={};           // {owner:{classe:valor}}
 let venderSet=new Set();    // tickers marcados manualmente p/ vender
+let manterSet=new Set();    // tickers marcados "manter" (nunca alertar no Smith)
 let movRows=[];             // ledger de movimentacoes (tabela movimentacao)
 let movYear='Todos';        // filtro de ano
 let movFilter={ativo:'',evento:'Todos',titular:'Todos',corretora:'Todos',origem:'Todos'};  // filtros por coluna
@@ -676,9 +677,12 @@ function renderPos(){
     const fora=sunoLoaded && effRank(r.ticker,r.classe)===999;
     const manual=(objManual[owner]||{})[r.ticker]!=null;
     const marcado=venderSet.has(r.ticker);
+    const mantido=manterSet.has(r.ticker);
     const tags=(aguardar?' <span class="tag warn">Aguardar</span>':'')+(fora?' <span class="tag neg">Fora</span>':'')
-      +(marcado?' <span class="tag" style="background:var(--c-rf);color:#fff">Vender</span>':'');
-    const vmark=` <span data-vd="${r.ticker}" title="marcar/desmarcar p/ vender" style="cursor:pointer;opacity:${marcado?1:.3}">🔖</span>`;
+      +(marcado?' <span class="tag" style="background:var(--c-rf);color:#fff">Vender</span>':'')
+      +(mantido?' <span class="tag pos">Manter</span>':'');
+    const vmark=` <span data-vd="${r.ticker}" title="marcar/desmarcar p/ vender" style="cursor:pointer;opacity:${marcado?1:.3}">🔖</span>`
+      +` <span data-md="${r.ticker}" title="marcar/desmarcar p/ MANTER (nunca alertar venda)" style="cursor:pointer;opacity:${mantido?1:.3}">📌</span>`;
     const luc = r.preco>0 ? (r.preco>=r.pm?'var(--pos)':'var(--neg)') : 'var(--txt)';
     const isU = r.moeda==='USD';
     const precoCell = isU
@@ -722,7 +726,19 @@ function renderPos(){
   document.querySelectorAll('#posTable [data-vd]').forEach(el=>el.onclick=()=>{
     const tk=el.dataset.vd;
     if(venderSet.has(tk)){ venderSet.delete(tk); saveVender(tk,false); }
-    else { venderSet.add(tk); saveVender(tk,true); }
+    else {
+      venderSet.add(tk); saveVender(tk,true);
+      if(manterSet.has(tk)){ manterSet.delete(tk); saveManter(tk,false); }  // mutuamente exclusivo
+    }
+    renderPos();
+  });
+  document.querySelectorAll('#posTable [data-md]').forEach(el=>el.onclick=()=>{
+    const tk=el.dataset.md;
+    if(manterSet.has(tk)){ manterSet.delete(tk); saveManter(tk,false); }
+    else {
+      manterSet.add(tk); saveManter(tk,true);
+      if(venderSet.has(tk)){ venderSet.delete(tk); saveVender(tk,false); }  // mutuamente exclusivo
+    }
     renderPos();
   });
 }
@@ -1230,6 +1246,10 @@ function saveVender(tk,on){
   if(on) sb.from('cfg_vender').upsert({owner_uid:UID,ticker:tk},{onConflict:'owner_uid,ticker'}).then(()=>{});
   else sb.from('cfg_vender').delete().eq('owner_uid',UID).eq('ticker',tk).then(()=>{});
 }
+function saveManter(tk,on){
+  if(on) sb.from('cfg_manter').upsert({owner_uid:UID,ticker:tk},{onConflict:'owner_uid,ticker'}).then(()=>{});
+  else sb.from('cfg_manter').delete().eq('owner_uid',UID).eq('ticker',tk).then(()=>{});
+}
 function saveObj(o,tk,pct){
   if(pct==null) sb.from('cfg_objetivos').delete().eq('owner_uid',UID).eq('titular',o).eq('ticker',tk).then(()=>{});
   else sb.from('cfg_objetivos').upsert({owner_uid:UID,titular:o,ticker:tk,pct:pct},{onConflict:'owner_uid,titular,ticker'}).then(()=>{});
@@ -1411,9 +1431,11 @@ async function loadData(){
   aporteAll={}; OWNERS.forEach(o=>aporteAll[o]={});
   aporteR.forEach(r=>{ (aporteAll[r.titular]=aporteAll[r.titular]||{})[r.classe]=N(r.valor); });
 
-  // cfg_vender e tolerante (tabela pode nao existir ainda): nao quebra o painel
+  // cfg_vender/cfg_manter sao tolerantes (tabela pode nao existir ainda): nao quebra o painel
   venderSet=new Set();
   try{ const vr=await grab('cfg_vender'); venderSet=new Set(vr.map(r=>r.ticker)); }catch(e){ diag('cfg_vender indisponivel: '+(e.message||e)); }
+  manterSet=new Set();
+  try{ const mr=await grab('cfg_manter'); manterSet=new Set(mr.map(r=>r.ticker)); }catch(e){ diag('cfg_manter indisponivel: '+(e.message||e)); }
 
   // movimentacao (ledger) — tolerante (tabela pode nao existir ainda)
   movRows=[];
