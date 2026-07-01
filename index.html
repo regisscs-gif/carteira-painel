@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.17.0 · 2026-06-30</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.18.0 · 2026-07-01</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -170,6 +170,9 @@ const fmtU = v => 'US$ ' + (v||0).toLocaleString('en-US',{minimumFractionDigits:
 const fmt0 = v => (v||0).toLocaleString('pt-BR',{maximumFractionDigits:0});
 const pct = v => (v||0).toFixed(1)+'%';
 const cls = v => v>0?'pos':(v<0?'neg':'');
+// SEGURANCA: escapa texto do banco (ticker/nome/etc.) antes de ir p/ innerHTML.
+// Impede XSS armazenado — um ticker forjado num import (ex.: <img onerror=...>) executaria.
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const sig = v => (v>0?'+':'')+fmt(v);
 const somaChip = (label,soma) => {const ok=Math.abs(soma-1)<0.005;
   return `<span style="font-weight:700;color:${ok?'var(--pos)':'var(--c-stocks)'}">${label}: ${(soma*100).toFixed(1)}%</span>`;};
@@ -325,11 +328,11 @@ function chartProvRanking(rows){
     g+=`<line x1="${xx}" y1="${PT}" x2="${xx}" y2="${H-4}" stroke="var(--line)"/>`;
     g+=`<text x="${xx}" y="${PT-6}" text-anchor="middle" font-size="9" fill="var(--mut)">${fmtK(t)}</text>`;});
   rows.forEach((r,i)=>{ const yy=PT+i*(rowH+gap);
-    g+=`<text x="${PL-6}" y="${yy+rowH/2+3}" text-anchor="end" font-size="10" fill="var(--txt)">${r.ticker}</text>`;
+    g+=`<text x="${PL-6}" y="${yy+rowH/2+3}" text-anchor="end" font-size="10" fill="var(--txt)">${esc(r.ticker)}</text>`;
     let xc=PL;
     [['real',1],['est',.4]].forEach(([k,op])=>{ const v=r[k]; if(v<=0) return;
       const w=plotW*v/nt.max;
-      g+=`<rect x="${xc}" y="${yy}" width="${w}" height="${rowH}" rx="2" fill="${CLASSE_COR[r.classe]}" fill-opacity="${op}"><title>${r.ticker}${k==='est'?' (estimado)':''}: ${fmt(v)}</title></rect>`;
+      g+=`<rect x="${xc}" y="${yy}" width="${w}" height="${rowH}" rx="2" fill="${CLASSE_COR[r.classe]}" fill-opacity="${op}"><title>${esc(r.ticker)}${k==='est'?' (estimado)':''}: ${fmt(v)}</title></rect>`;
       xc+=w;});
     g+=`<text x="${xc+4}" y="${yy+rowH/2+3}" font-size="9" fill="var(--mut)">${fmtK(r.valor)}</text>`;});
   return `<div style="overflow-x:auto"><svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:${Math.round(W*0.7)}px;max-width:${W}px">${g}</svg></div>`;
@@ -681,17 +684,17 @@ function renderPos(){
     const tags=(aguardar?' <span class="tag warn">Aguardar</span>':'')+(fora?' <span class="tag neg">Fora</span>':'')
       +(marcado?' <span class="tag" style="background:var(--c-rf);color:#fff">Vender</span>':'')
       +(mantido?' <span class="tag pos">Manter</span>':'');
-    const vmark=` <span data-vd="${r.ticker}" title="marcar/desmarcar p/ vender" style="cursor:pointer;opacity:${marcado?1:.3}">🔖</span>`
-      +` <span data-md="${r.ticker}" title="marcar/desmarcar p/ MANTER (nunca alertar venda)" style="cursor:pointer;opacity:${mantido?1:.3}">📌</span>`;
+    const vmark=` <span data-vd="${esc(r.ticker)}" title="marcar/desmarcar p/ vender" style="cursor:pointer;opacity:${marcado?1:.3}">🔖</span>`
+      +` <span data-md="${esc(r.ticker)}" title="marcar/desmarcar p/ MANTER (nunca alertar venda)" style="cursor:pointer;opacity:${mantido?1:.3}">📌</span>`;
     const luc = r.preco>0 ? (r.preco>=r.pm?'var(--pos)':'var(--neg)') : 'var(--txt)';
     const isU = r.moeda==='USD';
     const precoCell = isU
       ? `<td><div style="font-weight:700;color:${luc}">${fmtU(r.preco_nat)}</div><div class="sub" style="font-size:11px">PM ${fmtU(r.pm_nat)}</div></td>`
       : `<td><div style="font-weight:700;color:${luc}">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">PM ${fmt(r.pm)}</div></td>`;
-    const objCells = showObj ? `<td><input data-tk="${r.ticker}" value="${obj!=null?(obj*100).toFixed(1):''}" placeholder="—" title="${manual?'manual (sobrescreve Suno)':'Suno'}" style="width:54px;text-align:right;background:var(--card2);color:${manual?'var(--c-stocks)':'var(--txt)'};border:1px solid var(--line);border-radius:5px;padding:1px 4px">%</td>`
+    const objCells = showObj ? `<td><input data-tk="${esc(r.ticker)}" value="${obj!=null?(obj*100).toFixed(1):''}" placeholder="—" title="${manual?'manual (sobrescreve Suno)':'Suno'}" style="width:54px;text-align:right;background:var(--card2);color:${manual?'var(--c-stocks)':'var(--txt)'};border:1px solid var(--line);border-radius:5px;padding:1px 4px">%</td>`
       +`<td class="${dif!=null?cls(dif):''}">${dif!=null?(dif>0?'+':'')+dif.toFixed(1)+'%':'—'}</td>` : '';
     h+=`<tr>
-      <td><b>${r.ticker}</b>${vmark}${tags}</td>
+      <td><b>${esc(r.ticker)}</b>${vmark}${tags}</td>
       ${precoCell}
       <td>${fmt0(r.qtd)}</td>
       <td><b>${fmt(r.valor)}</b></td>
@@ -848,7 +851,7 @@ function renderProv(){
     +'<th style="text-align:right">Valor</th><th>Origem</th></tr>'
     +`<tr>
       <th></th>
-      <th><input id="pfAtivo" value="${f.ativo}" placeholder="todos" style="width:72px;${FILTIN}"></th>
+      <th><input id="pfAtivo" value="${esc(f.ativo)}" placeholder="todos" style="width:72px;${FILTIN}"></th>
       <th><select id="pfClasse" style="${SELIN}">${opt([['Todas','Todas'],['Acoes','Ações'],['FIIs','FIIs'],['Stocks','Stocks']],f.classe)}</select></th>
       <th><select id="pfTipo" style="${SELIN}">${opt(['Todos','Dividendo','Rendimento','JCP'],f.tipo)}</select></th>
       <th></th><th></th>
@@ -858,9 +861,9 @@ function renderProv(){
     const cl=clOf(r);
     const isU=r.moeda==='USD';
     t+=`<tr>
-      <td>${fmtD(r.data)}</td><td><b>${r.ticker}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
+      <td>${fmtD(r.data)}</td><td><b>${esc(r.ticker)}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
       <td><span class="pill" style="background:${CLASSE_COR[cl]}"></span>${TIPO_LABEL[cl]}</td>
-      <td>${r.tipo||''}</td><td>${r.titular||''}</td>
+      <td>${esc(r.tipo||'')}</td><td>${esc(r.titular||'')}</td>
       <td style="text-align:right">${fmt(valBRL(r))}</td>
       <td class="sub">${r.fonte==='estimado'?'~ estimado':'✓ pago'}</td></tr>`;
   });
@@ -922,13 +925,13 @@ function renderMov(){
   const distinct=k=>[...new Set(movRows.map(r=>r[k]).filter(Boolean))].sort();
   const origemLabel=v=> v==='nota'?'📄 nota':(v==='seed'?'histórico':v);
   const mkSel=(id,key,vals,lab)=>`<select id="${id}" style="${SELIN}">`
-    +['Todos',...vals].map(v=>`<option value="${v}"${v===f[key]?' selected':''}>${v==='Todos'?'Todos':(lab?lab(v):v)}</option>`).join('')+'</select>';
+    +['Todos',...vals].map(v=>`<option value="${esc(v)}"${v===f[key]?' selected':''}>${v==='Todos'?'Todos':esc(lab?lab(v):v)}</option>`).join('')+'</select>';
   let t='<table><thead><tr>'
     +'<th>Data</th><th>Ativo</th><th>Evento</th><th>Titular</th><th>Corretora</th>'
     +'<th style="text-align:right">Qtd</th><th style="text-align:right">Preço</th>'
     +'<th style="text-align:right">Taxas</th><th style="text-align:right">Total</th><th>Origem</th></tr>'
     +`<tr><th></th>
-      <th><input id="fAtivo" value="${f.ativo}" placeholder="todos" style="width:64px;${FILTIN}"></th>
+      <th><input id="fAtivo" value="${esc(f.ativo)}" placeholder="todos" style="width:64px;${FILTIN}"></th>
       <th>${mkSel('fEvento','evento',distinct('evento'))}</th>
       <th>${mkSel('fTitular','titular',distinct('titular'))}</th>
       <th>${mkSel('fCorretora','corretora',distinct('corretora'))}</th>
@@ -938,9 +941,9 @@ function renderMov(){
     const cor=EVENTO_COR[r.evento]||'var(--txt)';
     const isU=r.moeda==='USD', money=v=>isU?fmtU(v):fmt(v), strip=v=>money(v).replace(isU?'US$ ':'R$ ','');
     t+=`<tr>
-      <td>${fmtD(r.data)}</td><td><b>${r.ativo}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
-      <td style="color:${cor}">${r.evento}</td><td>${r.titular||''}</td>
-      <td class="sub">${r.corretora||''}</td>
+      <td>${fmtD(r.data)}</td><td><b>${esc(r.ativo)}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
+      <td style="color:${cor}">${esc(r.evento)}</td><td>${esc(r.titular||'')}</td>
+      <td class="sub">${esc(r.corretora||'')}</td>
       <td style="text-align:right">${fmt0(N(r.qtd))}</td>
       <td style="text-align:right">${N(r.preco)?strip(N(r.preco)):'—'}</td>
       <td style="text-align:right" class="sub">${movTaxas(r)?strip(movTaxas(r)):'—'}</td>
@@ -1115,7 +1118,7 @@ function irpfGanhos(I,ano){
   g+='</tbody></table>';
   const vendas=(I.ganhos[ano]||{vendas:[]}).vendas;
   let det='<table><thead><tr><th>Data</th><th>Ativo</th><th>Qtd</th><th>Venda</th><th>Custo</th><th>Ganho</th></tr></thead><tbody>';
-  vendas.forEach(v=>{ det+=`<tr><td>${v.data.split('-').reverse().join('/')}</td><td><b>${v.ticker}</b>${v.incompleto?' <span class="warn">⚠</span>':''}</td>
+  vendas.forEach(v=>{ det+=`<tr><td>${v.data.split('-').reverse().join('/')}</td><td><b>${esc(v.ticker)}</b>${v.incompleto?' <span class="warn">⚠</span>':''}</td>
       <td>${fmt0(v.qtd)}</td><td>${fmt(v.valor_venda)}</td><td>${fmt(v.custo)}</td><td class="${cls(v.ganho)}">${sig(v.ganho)}</td></tr>`;});
   if(!vendas.length) det+='<tr><td colspan="6" class="sub">Sem vendas em '+ano+'.</td></tr>';
   det+='</tbody></table>';
@@ -1165,14 +1168,14 @@ function irpfCardHTML(tk,I,ano,ba,an){
       ${has?`<label class="sub" style="font-size:12px;${bensPend?'color:var(--c-stocks)':''}"><input type="checkbox" data-bd="${tk}" ${b.declarado?'checked':''}> Bens declarado</label>`:'<span class="tag">só rendimentos</span>'}
     </div>
     ${has?`<div style="margin-top:8px;display:flex;gap:8px;align-items:flex-start">
-      <div style="flex:1"><span class="sub">Discriminação</span><div>${irpfDiscrim(tk,b)}</div></div>
-      <span data-cp="${tk}" style="cursor:pointer" title="copiar discriminação">📋</span></div>
+      <div style="flex:1"><span class="sub">Discriminação</span><div>${esc(irpfDiscrim(tk,b))}</div></div>
+      <span data-cp="${esc(tk)}" style="cursor:pointer" title="copiar discriminação">📋</span></div>
     <div class="sub" style="margin-top:6px">Situação 31/12/${ano-1}: <b>${sitAnt}</b> &nbsp;→&nbsp; 31/12/${ano}: <b>${sitAtu}</b>${isU?' <span style="opacity:.6">(US$ — exterior pelo câmbio da data de compra; informativo)</span>':''}</div>`:''}
     <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <span class="sub">📄 Onde buscar o informe:</span>
-      <input data-cfg="${tk}" data-cf="fonte_nome" value="${(cfg.fonte_nome||'').replace(/"/g,'&quot;')}" placeholder="${b.classe==='FIIs'?'administrador':'escriturador'}" style="${IRPF_IN};width:200px">
-      <input data-cfg="${tk}" data-cf="cnpj" value="${cfg.cnpj||''}" placeholder="CNPJ" style="${IRPF_IN};width:150px">
-      ${cfg.fonte_tipo?`<span class="sub" style="font-size:10px">(${cfg.fonte_tipo} · confira)</span>`:''}
+      <input data-cfg="${esc(tk)}" data-cf="fonte_nome" value="${esc(cfg.fonte_nome||'')}" placeholder="${b.classe==='FIIs'?'administrador':'escriturador'}" style="${IRPF_IN};width:200px">
+      <input data-cfg="${esc(tk)}" data-cf="cnpj" value="${esc(cfg.cnpj||'')}" placeholder="CNPJ" style="${IRPF_IN};width:150px">
+      ${cfg.fonte_tipo?`<span class="sub" style="font-size:10px">(${esc(cfg.fonte_tipo)} · confira)</span>`:''}
     </div>
     <div style="margin-top:6px">${rl}</div></div>`;
 }
@@ -1619,9 +1622,9 @@ function pollImport(jid, st, n){
     if(data.status==='erro'){ st.style.color='var(--neg)'; st.textContent='Falha: '+(r.erro||'erro no processamento'); return; }
     const txt='✓ Importado. '+(r.aviso ? r.aviso : ((r.resumo||'')+importDiffTxt(r)));
     st.style.color='var(--pos)';
-    st.innerHTML=importBar(100,'concluído')+'<div style="margin-top:8px">'+txt+' <span class="sub">— atualizando o painel…</span></div>';
+    st.innerHTML=importBar(100,'concluído')+'<div style="margin-top:8px">'+esc(txt)+' <span class="sub">— atualizando o painel…</span></div>';
     loadData().then(()=>{ recalc(); renderIRPF();
-      st.innerHTML=importBar(100,'concluído')+'<div style="margin-top:8px">'+txt+' <span class="sub">— painel atualizado.</span></div>'; });
+      st.innerHTML=importBar(100,'concluído')+'<div style="margin-top:8px">'+esc(txt)+' <span class="sub">— painel atualizado.</span></div>'; });
   });
 }
 function importDiffTxt(r){
