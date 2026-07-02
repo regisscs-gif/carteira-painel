@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.19.0 · 2026-07-02</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.20.0 · 2026-07-02</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -223,6 +223,20 @@ function effRank(tk,classe){
 function effStatus(tk,classe){
   if(classe==='FIIs'&&suno.FIIs[tk]) return suno.FIIs[tk].status;
   if(classe==='Acoes'&&suno.Acoes[tk]) return suno.Acoes[tk].status; return '';}
+// linhas "fantasma": recomendados Suno da classe que ESTE titular ainda nao tem (qtd/valor=0).
+// Usadas na aba Posicoes (lembrete visual) e no calculo de aporte (prioriza o #1 que falta).
+function sunoGhosts(ownr,classe){
+  const map=classe==='FIIs'?suno.FIIs:(classe==='Acoes'?suno.Acoes:null);
+  if(!map||!Object.keys(map).length) return [];
+  const held=new Set((D.posicoes[ownr]||[]).filter(r=>r.classe===classe).map(r=>r.ticker));
+  return Object.keys(map).filter(tk=>!held.has(tk)).map(tk=>{
+    const px=D_preco[tk]||0;
+    return {ticker:tk, classe:classe, moeda:'BRL', fx:1, qtd:0, pm:0, custo:0,
+      preco:px, valor:0, lucro:0, lucro_pct:0,
+      pm_nat:0, custo_nat:0, preco_nat:px, valor_nat:0,
+      fonte_preco:(px?'yahoo':''), _ghost:true};
+  });
+}
 
 /* ====================================================================
    Parser do ranking Suno (portado do gen_gs.py)
@@ -657,20 +671,9 @@ function renderPos(){
   const totValor=real.reduce((s,r)=>s+r.valor,0), totCusto=real.reduce((s,r)=>s+r.custo,0);
   const totClasse=totValor||1, totLP=totValor-totCusto;
   const sunoLoaded=(posTipo==='FIIs'||posTipo==='Acoes') && Object.keys(posTipo==='FIIs'?suno.FIIs:suno.Acoes).length>0;
-  // linhas "fantasma": ativos recomendados pela Suno que este titular ainda NÃO tem
-  // (só nas visões com objetivo — Régis/Theo; lembrete de aporte). qtd/valor = 0.
-  let ghosts=[];
-  if(showObj && sunoLoaded){
-    const map=posTipo==='FIIs'?suno.FIIs:suno.Acoes;
-    const held=new Set(real.map(r=>r.ticker));
-    ghosts=Object.keys(map).filter(tk=>!held.has(tk)).map(tk=>{
-      const px=D_preco[tk]||0;
-      return {ticker:tk, classe:posTipo, moeda:'BRL', fx:1, qtd:0, pm:0, custo:0,
-        preco:px, valor:0, lucro:0, lucro_pct:0,
-        pm_nat:0, custo_nat:0, preco_nat:px, valor_nat:0,
-        fonte_preco:(px?'yahoo':''), _ghost:true};
-    });
-  }
+  // linhas "fantasma": recomendados Suno que este titular ainda NÃO tem (só nas visões
+  // com objetivo — Régis/Theo; lembrete de aporte). qtd/valor = 0.
+  const ghosts=(showObj && sunoLoaded)?sunoGhosts(owner,posTipo):[];
   const rows=real.concat(ghosts).slice().sort((x,y)=>{
     if(posSort.k==='rank'){ if(!showObj) return y.valor-x.valor;
       const a=effRank(x.ticker,x.classe),b=effRank(y.ticker,y.classe); if(a!==b) return posSort.dir*(a-b); return y.valor-x.valor;}
@@ -1046,7 +1049,9 @@ function calcularAporte(){
   APORTE_CLASSES.forEach(classe=>{
     const ap=Number(inputs[classe])||0; if(ap<=0) return;
     totalAporte+=ap;
-    const assets=(D.posicoes[owner]||[]).filter(r=>r.classe===classe);
+    // inclui os recomendados que o titular ainda NÃO tem (valor 0 = maior gap): o #1
+    // que falta é comprado prioritariamente, por rank, igual às posições existentes.
+    const assets=(D.posicoes[owner]||[]).filter(r=>r.classe===classe).concat(sunoGhosts(owner,classe));
     const baseTotal=assets.reduce((s,r)=>s+r.valor,0), alvoTotal=baseTotal+ap;
     const alvos=assets.filter(r=>effObj(r.ticker,classe)!=null).sort((a,b)=>effRank(a.ticker,classe)-effRank(b.ticker,classe));
     if(!alvos.length){ avisos.push([TIPO_LABEL[classe],'sem objetivo definido — aplique o ranking do Suno ou defina manualmente','','']); return; }
@@ -1061,7 +1066,7 @@ function calcularAporte(){
       if(rem<=0) return;
       const qtd=Math.floor(Math.min(gap,rem)/r.preco); if(qtd<=0) return;
       const custo=qtd*r.preco; rem-=custo; compradoClasse+=custo;
-      linhas.push([TIPO_LABEL[classe], r.ticker, fmt(r.preco), qtd, custo]);
+      linhas.push([TIPO_LABEL[classe], r.ticker, fmt(r.preco), qtd, custo, r._ghost]);
     });
     if(compradoClasse<=0) avisos.push([TIPO_LABEL[classe],'nada comprado (classe já no alvo, cotação 0 ou sobra insuficiente)','','']);
     else if(rem>0.005) avisos.push([TIPO_LABEL[classe],'sobra não alocada','',fmt(rem)]);
@@ -1070,7 +1075,7 @@ function calcularAporte(){
   let h='';
   if(linhas.length){
     h+='<table><thead><tr><th>Classe</th><th>Ativo</th><th>Preço</th><th>Qtd a comprar</th><th>Valor estimado</th></tr></thead><tbody>';
-    linhas.forEach(l=>h+=`<tr><td style="text-align:left">${l[0]}</td><td><b>${l[1]}</b></td><td>${l[2]}</td><td><b>${fmt0(l[3])}</b></td><td>${fmt(l[4])}</td></tr>`);
+    linhas.forEach(l=>h+=`<tr><td style="text-align:left">${l[0]}</td><td><b>${esc(l[1])}</b>${l[5]?' <span class="tag pos">novo</span>':''}</td><td>${l[2]}</td><td><b>${fmt0(l[3])}</b></td><td>${fmt(l[4])}</td></tr>`);
     h+='</tbody></table>';
   } else h='<div class="note">Nenhuma compra sugerida com os valores informados.</div>';
   h+=`<div style="margin-top:10px"><b>Total sugerido: ${fmt(totalComprado)}</b> de ${fmt(totalAporte)} aportado · sobra ${fmt(totalAporte-totalComprado)}</div>`;
@@ -1702,7 +1707,7 @@ async function boot(){
   sb=window.supabase.createClient(window.SUPA_CONFIG.url, window.SUPA_CONFIG.anonKey,
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
-  diag('versão v3.19.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.20.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
