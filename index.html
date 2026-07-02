@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.18.1 · 2026-07-01</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.19.0 · 2026-07-02</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -186,6 +186,7 @@ const defAlvo={Acoes:.20,FIIs:.25,ETF:.15,Stocks:.15,'Renda Fixa':.25};
 
 let sb=null, UID=null;
 let D_fxUSD=0;              // cambio do dolar (R$ por US$1), de cotacoes.USDBRL
+let D_preco={};             // {ticker: preco nativo} de cotacoes (p/ precificar linhas fantasma)
 let D=null;                 // {gerado_em, posicoes:{owner:[...]}, proventos:{owner:{...}}, irpf:{...}}
 let owner='Consolidado';
 let alvoClasseAll={};       // {owner:{classe:alvo}}
@@ -651,19 +652,35 @@ let posTipo='Acoes', posSort={k:'rank',dir:1};
 function renderPos(){
   if(posTipo==='Renda Fixa'){ renderRF(); return; }
   const showObj=owner!=='Consolidado';
-  const rows=(D.posicoes[owner]||[]).filter(r=>r.classe===posTipo).slice().sort((x,y)=>{
+  const real=(D.posicoes[owner]||[]).filter(r=>r.classe===posTipo);
+  // totais/KPIs só das posições REAIS (as fantasma valem 0, mas nem entram na conta)
+  const totValor=real.reduce((s,r)=>s+r.valor,0), totCusto=real.reduce((s,r)=>s+r.custo,0);
+  const totClasse=totValor||1, totLP=totValor-totCusto;
+  const sunoLoaded=(posTipo==='FIIs'||posTipo==='Acoes') && Object.keys(posTipo==='FIIs'?suno.FIIs:suno.Acoes).length>0;
+  // linhas "fantasma": ativos recomendados pela Suno que este titular ainda NÃO tem
+  // (só nas visões com objetivo — Régis/Theo; lembrete de aporte). qtd/valor = 0.
+  let ghosts=[];
+  if(showObj && sunoLoaded){
+    const map=posTipo==='FIIs'?suno.FIIs:suno.Acoes;
+    const held=new Set(real.map(r=>r.ticker));
+    ghosts=Object.keys(map).filter(tk=>!held.has(tk)).map(tk=>{
+      const px=D_preco[tk]||0;
+      return {ticker:tk, classe:posTipo, moeda:'BRL', fx:1, qtd:0, pm:0, custo:0,
+        preco:px, valor:0, lucro:0, lucro_pct:0,
+        pm_nat:0, custo_nat:0, preco_nat:px, valor_nat:0,
+        fonte_preco:(px?'yahoo':''), _ghost:true};
+    });
+  }
+  const rows=real.concat(ghosts).slice().sort((x,y)=>{
     if(posSort.k==='rank'){ if(!showObj) return y.valor-x.valor;
       const a=effRank(x.ticker,x.classe),b=effRank(y.ticker,y.classe); if(a!==b) return posSort.dir*(a-b); return y.valor-x.valor;}
     let a=x[posSort.k],b=y[posSort.k];
     if(typeof a==='string')return posSort.dir*a.localeCompare(b);
     return posSort.dir*((a||0)-(b||0));
   });
-  const totValor=rows.reduce((s,r)=>s+r.valor,0), totCusto=rows.reduce((s,r)=>s+r.custo,0);
-  const totClasse=totValor||1, totLP=totValor-totCusto;
-  const sunoLoaded=(posTipo==='FIIs'||posTipo==='Acoes') && Object.keys(posTipo==='FIIs'?suno.FIIs:suno.Acoes).length>0;
   let somaObj=0;
   let h=`<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px">
-    <div><div class="sub">Ativos</div><div style="font-weight:800;font-size:18px">${rows.length}</div></div>
+    <div><div class="sub">Ativos</div><div style="font-weight:800;font-size:18px">${real.length}${ghosts.length?` <span class="sub" style="font-size:12px;font-weight:600">+${ghosts.length} a comprar</span>`:''}</div></div>
     <div><div class="sub">Custo total</div><div style="font-weight:800;font-size:18px">${fmt(totCusto)}</div></div>
     <div><div class="sub">Valor total</div><div style="font-weight:800;font-size:18px">${fmt(totValor)}</div></div>
     <div><div class="sub">Resultado</div><div class="${cls(totLP)}" style="font-weight:800;font-size:18px">${sig(totLP)} <span style="font-size:12px">(${(totCusto?totLP/totCusto*100:0).toFixed(1)}%)</span></div></div>
@@ -676,31 +693,36 @@ function renderPos(){
     const atual=r.valor/totClasse, obj=effObj(r.ticker,r.classe);
     const dif=obj!=null?(atual-obj)*100:null;
     if(obj!=null) somaObj+=obj;
+    const ghost=r._ghost;
     const aguardar=String(effStatus(r.ticker,r.classe)).toLowerCase().indexOf('aguard')>=0;
     const fora=sunoLoaded && effRank(r.ticker,r.classe)===999;
     const manual=(objManual[owner]||{})[r.ticker]!=null;
     const marcado=venderSet.has(r.ticker);
     const mantido=manterSet.has(r.ticker);
-    const tags=(aguardar?' <span class="tag warn">Aguardar</span>':'')+(fora?' <span class="tag neg">Fora</span>':'')
+    const tags=(ghost?' <span class="tag" style="background:transparent;color:var(--mut);border:1px dashed var(--line)">A comprar</span>':'')
+      +(aguardar?' <span class="tag warn">Aguardar</span>':'')+(fora?' <span class="tag neg">Fora</span>':'')
       +(marcado?' <span class="tag" style="background:var(--c-rf);color:#fff">Vender</span>':'')
       +(mantido?' <span class="tag pos">Manter</span>':'');
-    const vmark=` <span data-vd="${esc(r.ticker)}" title="marcar/desmarcar p/ vender" style="cursor:pointer;opacity:${marcado?1:.3}">🔖</span>`
+    // fantasma (não possuído): sem marca de vender, só o 📌 p/ objetivo/manter
+    const vmark=ghost?'':` <span data-vd="${esc(r.ticker)}" title="marcar/desmarcar p/ vender" style="cursor:pointer;opacity:${marcado?1:.3}">🔖</span>`
       +` <span data-md="${esc(r.ticker)}" title="marcar/desmarcar p/ MANTER (nunca alertar venda)" style="cursor:pointer;opacity:${mantido?1:.3}">📌</span>`;
     const luc = r.preco>0 ? (r.preco>=r.pm?'var(--pos)':'var(--neg)') : 'var(--txt)';
     const isU = r.moeda==='USD';
-    const precoCell = isU
+    const precoCell = ghost
+      ? `<td>${r.preco>0?`<div style="font-weight:700">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">atual</div>`:'<span class="sub">sem cotação</span>'}</td>`
+      : isU
       ? `<td><div style="font-weight:700;color:${luc}">${fmtU(r.preco_nat)}</div><div class="sub" style="font-size:11px">PM ${fmtU(r.pm_nat)}</div></td>`
       : `<td><div style="font-weight:700;color:${luc}">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">PM ${fmt(r.pm)}</div></td>`;
     const objCells = showObj ? `<td><input data-tk="${esc(r.ticker)}" value="${obj!=null?(obj*100).toFixed(1):''}" placeholder="—" title="${manual?'manual (sobrescreve Suno)':'Suno'}" style="width:54px;text-align:right;background:var(--card2);color:${manual?'var(--c-stocks)':'var(--txt)'};border:1px solid var(--line);border-radius:5px;padding:1px 4px">%</td>`
       +`<td class="${dif!=null?cls(dif):''}">${dif!=null?(dif>0?'+':'')+dif.toFixed(1)+'%':'—'}</td>` : '';
-    h+=`<tr>
+    h+=`<tr${ghost?' style="opacity:.62"':''}>
       <td><b>${esc(r.ticker)}</b>${vmark}${tags}</td>
       ${precoCell}
-      <td>${fmt0(r.qtd)}</td>
-      <td><b>${fmt(r.valor)}</b></td>
-      <td class="${cls(r.lucro)}">${sig(r.lucro)}</td>
-      <td class="${cls(r.lucro)}">${(r.lucro_pct>0?'+':'')+r.lucro_pct.toFixed(1)}%</td>
-      <td>${pct(atual*100)}</td>${objCells}</tr>`;
+      <td>${ghost?'—':fmt0(r.qtd)}</td>
+      <td>${ghost?'<span class="sub">—</span>':`<b>${fmt(r.valor)}</b>`}</td>
+      <td class="${cls(r.lucro)}">${ghost?'—':sig(r.lucro)}</td>
+      <td class="${cls(r.lucro)}">${ghost?'—':(r.lucro_pct>0?'+':'')+r.lucro_pct.toFixed(1)+'%'}</td>
+      <td>${ghost?'<span class="sub">0,0%</span>':pct(atual*100)}</td>${objCells}</tr>`;
   });
   h+='</table>';
   let foot = posTipo==='Stocks'
@@ -708,11 +730,12 @@ function renderPos(){
     : `Preço: cotação atual (verde=acima do PM, vermelho=abaixo) e PM embaixo`;
   if(showObj) foot+=` · ${somaChip('Soma dos objetivos', somaObj)}`;
   if(sunoLoaded) foot+=` · <span class="warn">Aguardar</span> = viés Suno · <span class="neg">Fora</span> = fora do ranking`;
+  if(ghosts.length) foot+=` · <span class="tag" style="background:transparent;color:var(--mut);border:1px dashed var(--line)">A comprar</span> = recomendado Suno que você ainda não tem (${ghosts.length})`;
   if(showObj) foot+=` · Objetivo editável (manual sobrescreve o Suno; vazio = volta ao Suno) · clique em "Objetivo" p/ ordenar por ranking`;
   if(!showObj) foot+=` · <span class="sub">visão Consolidada não usa objetivos (selecione Régis ou Theo)</span>`;
   h+=`<div class="note">${foot}</div>`;
-  const anyPrice=rows.some(r=>r.fonte_preco==='yahoo');
-  if(rows.length && !anyPrice) h+=`<div class="note warn">⚠ Cotações no preço médio (sem cotação) — L/P zerado.</div>`;
+  const anyPrice=real.some(r=>r.fonte_preco==='yahoo');
+  if(real.length && !anyPrice) h+=`<div class="note warn">⚠ Cotações no preço médio (sem cotação) — L/P zerado.</div>`;
   document.getElementById('posTable').innerHTML=h;
   document.querySelectorAll('#posTable th[data-k]').forEach(th=>th.onclick=()=>{
     const k=th.dataset.k;
@@ -1372,7 +1395,7 @@ async function loadData(){
     });
   });
   Object.keys(posicoes).forEach(o=>posicoes[o].sort((a,b)=>b.valor-a.valor));
-  D_fxUSD = fxUSD;
+  D_fxUSD = fxUSD; D_preco = precoMap;
 
   // proventos por dono
   const provByOwner={Consolidado:[],Regis:[],Theo:[]};
@@ -1679,7 +1702,7 @@ async function boot(){
   sb=window.supabase.createClient(window.SUPA_CONFIG.url, window.SUPA_CONFIG.anonKey,
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
-  diag('versão v3.18.1 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.19.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
