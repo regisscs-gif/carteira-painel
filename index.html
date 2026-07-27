@@ -726,10 +726,7 @@ function renderPos(){
     const cobre = !ghost && r.lucro<0 && r._resReal>=0;
     const resCell = ghost
       ? '<td><span class="sub">—</span></td>'
-      : `<td class="${cls(r._resReal)}"><b>${sig(r._resReal)}</b>`
-        +` <span class="sub" style="font-size:11px">${(r._resRealPct>0?'+':'')+r._resRealPct.toFixed(1)+'%'}</span>`
-        +(cobre?' <span class="tag pos" title="prejuízo nominal virou lucro somando os dividendos corrigidos pelo IPCA">🟢 dividendos cobrem</span>':'')
-        +'</td>';
+      : `<td class="${cls(r._resReal)}" title="L/P ${sig(r.lucro)} + proventos corrigidos ${fmt(r._provReal)} = ${sig(r._resReal)} (${(r._resRealPct>0?'+':'')+r._resRealPct.toFixed(1)}% sobre o custo)">${sig(r._resReal)}${cobre?' <span title="prejuízo nominal virou lucro somando os dividendos corrigidos pelo IPCA">🟢</span>':''}</td>`;
     h+=`<tr${ghost?' style="opacity:.62"':''}>
       <td><b>${esc(r.ticker)}</b>${vmark}${tags}</td>
       ${precoCell}
