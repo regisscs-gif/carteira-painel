@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.20.0 · 2026-07-02</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.21.0 · 2026-07-27</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -667,6 +667,11 @@ function renderPos(){
   if(posTipo==='Renda Fixa'){ renderRF(); return; }
   const showObj=owner!=='Consolidado';
   const real=(D.posicoes[owner]||[]).filter(r=>r.classe===posTipo);
+  // resultado real = L/P + proventos do ativo corrigidos pela inflação (IPCA) até hoje
+  const provR=provRealByTicker(owner);
+  real.forEach(r=>{ const pr=provR[r.ticker]||{real:0,nom:0};
+    r._provReal=pr.real; r._resReal=r.lucro+pr.real;
+    r._resRealPct=r.custo?r._resReal/r.custo*100:0; });
   // totais/KPIs só das posições REAIS (as fantasma valem 0, mas nem entram na conta)
   const totValor=real.reduce((s,r)=>s+r.valor,0), totCusto=real.reduce((s,r)=>s+r.custo,0);
   const totClasse=totValor||1, totLP=totValor-totCusto;
@@ -689,7 +694,7 @@ function renderPos(){
     <div><div class="sub">Resultado</div><div class="${cls(totLP)}" style="font-weight:800;font-size:18px">${sig(totLP)} <span style="font-size:12px">(${(totCusto?totLP/totCusto*100:0).toFixed(1)}%)</span></div></div>
   </div>`;
   const cols=[['ticker','Ativo'],['preco','Preço (PM→atual)'],['qtd','Qtd'],
-    ['valor','Valor'],['lucro','L/P'],['lucro_pct','L/P %'],['valor','% atual']];
+    ['valor','Valor'],['lucro','L/P'],['lucro_pct','L/P %'],['_resReal','Resultado real'],['valor','% atual']];
   if(showObj) cols.push(['rank','Objetivo'],['rank','Diferença']);
   h+='<table><thead><tr>'+cols.map(c=>`<th data-k="${c[0]}">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
   rows.forEach(r=>{
@@ -718,6 +723,13 @@ function renderPos(){
       : `<td><div style="font-weight:700;color:${luc}">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">PM ${fmt(r.pm)}</div></td>`;
     const objCells = showObj ? `<td><input data-tk="${esc(r.ticker)}" value="${obj!=null?(obj*100).toFixed(1):''}" placeholder="—" title="${manual?'manual (sobrescreve Suno)':'Suno'}" style="width:54px;text-align:right;background:var(--card2);color:${manual?'var(--c-stocks)':'var(--txt)'};border:1px solid var(--line);border-radius:5px;padding:1px 4px">%</td>`
       +`<td class="${dif!=null?cls(dif):''}">${dif!=null?(dif>0?'+':'')+dif.toFixed(1)+'%':'—'}</td>` : '';
+    const cobre = !ghost && r.lucro<0 && r._resReal>=0;
+    const resCell = ghost
+      ? '<td><span class="sub">—</span></td>'
+      : `<td class="${cls(r._resReal)}"><b>${sig(r._resReal)}</b>`
+        +` <span class="sub" style="font-size:11px">${(r._resRealPct>0?'+':'')+r._resRealPct.toFixed(1)+'%'}</span>`
+        +(cobre?' <span class="tag pos" title="prejuízo nominal virou lucro somando os dividendos corrigidos pelo IPCA">🟢 dividendos cobrem</span>':'')
+        +'</td>';
     h+=`<tr${ghost?' style="opacity:.62"':''}>
       <td><b>${esc(r.ticker)}</b>${vmark}${tags}</td>
       ${precoCell}
@@ -725,6 +737,7 @@ function renderPos(){
       <td>${ghost?'<span class="sub">—</span>':`<b>${fmt(r.valor)}</b>`}</td>
       <td class="${cls(r.lucro)}">${ghost?'—':sig(r.lucro)}</td>
       <td class="${cls(r.lucro)}">${ghost?'—':(r.lucro_pct>0?'+':'')+r.lucro_pct.toFixed(1)+'%'}</td>
+      ${resCell}
       <td>${ghost?'<span class="sub">0,0%</span>':pct(atual*100)}</td>${objCells}</tr>`;
   });
   h+='</table>';
@@ -736,6 +749,8 @@ function renderPos(){
   if(ghosts.length) foot+=` · <span class="tag" style="background:transparent;color:var(--mut);border:1px dashed var(--line)">A comprar</span> = recomendado Suno que você ainda não tem (${ghosts.length})`;
   if(showObj) foot+=` · Objetivo editável (manual sobrescreve o Suno; vazio = volta ao Suno) · clique em "Objetivo" p/ ordenar por ranking`;
   if(!showObj) foot+=` · <span class="sub">visão Consolidada não usa objetivos (selecione Régis ou Theo)</span>`;
+  const temIPCA=!!(D.hist&&D.hist.indices&&D.hist.indices['IPCA']);
+  foot+=` · <b>Resultado real</b> = L/P + proventos do ativo ${temIPCA?'corrigidos pela inflação (IPCA) até hoje':'<span class="warn">(a valor de face — sem série IPCA)</span>'}`;
   h+=`<div class="note">${foot}</div>`;
   const anyPrice=real.some(r=>r.fonte_preco==='yahoo');
   if(real.length && !anyPrice) h+=`<div class="note warn">⚠ Cotações no preço médio (sem cotação) — L/P zerado.</div>`;
@@ -1327,6 +1342,40 @@ function aggOwner(rows){
 }
 
 /* ====================================================================
+   Resultado real: L/P não realizado + proventos do ativo corrigidos
+   pela inflação (IPCA) até hoje. Traz cada provento a valor de hoje —
+   assim dá pra ver se os dividendos recebidos ao longo do tempo já
+   cobriram um prejuízo nominal.
+==================================================================== */
+// fator p/ trazer um provento do mês 'YYYY-MM' a valor de hoje pelo IPCA acumulado.
+// cache do acumulado por identidade do objeto IPCA (reconstroi só quando D recarrega).
+let _ipcaCum=null;
+function ipcaFactor(mes){
+  const ip=(D&&D.hist&&D.hist.indices&&D.hist.indices['IPCA'])||null;
+  if(!ip) return 1;                                   // sem IPCA -> nominal
+  if(!_ipcaCum || _ipcaCum.src!==ip){
+    const keys=Object.keys(ip).sort(); const cum={}; let acc=1;
+    for(let i=keys.length-1;i>=0;i--){ cum[keys[i]]=acc; acc*=(1+N(ip[keys[i]])); }
+    _ipcaCum={src:ip,cum,keys,full:acc};              // fator(m)=∏(1+ipca_k), k>m ; último mês=1
+  }
+  const {cum,keys,full}=_ipcaCum;
+  if(cum[mes]!=null) return cum[mes];
+  if(!keys.length) return 1;
+  if(mes<keys[0]) return full;                        // antes da série -> aplica inflação cheia disponível
+  return 1;                                           // depois do último mês -> sem correção
+}
+// proventos por ticker (nominal e corrigido). Consolidado = Regis+Theo (não tem linha própria).
+function provRealByTicker(owner){
+  const cells = owner==='Consolidado'
+    ? ((D.proventos.Regis||{cells:[]}).cells||[]).concat((D.proventos.Theo||{cells:[]}).cells||[])
+    : ((D.proventos[owner]||{cells:[]}).cells||[]);
+  const m={};
+  cells.forEach(c=>{ const e=m[c.ticker]=m[c.ticker]||{nom:0,real:0};
+    e.nom+=c.valor; e.real+=c.valor*ipcaFactor(c.mes); });
+  return m;
+}
+
+/* ====================================================================
    Modo demonstração — substitui os valores reais por dados fictícios
    COERENTES (tickers e preços de mercado seguem reais). Só na memória,
    nada vai ao Supabase; desligar volta aos valores reais.
@@ -1440,6 +1489,7 @@ async function loadData(){
       suno_iso: metaMap.suno_atualizado_em||null, suno_status: metaMap.suno_status||'',
       posicoes, proventos, provRaw:provByOwner, hist:{patr:histPatr,indices:histIdx},
       irpf:{ano_base:anoBase,bensByYear,ganhos,cfg:cfgIrpf,rend:rendAll,anos:anosIrpf} };
+  _ipcaCum=null;   // invalida cache do acumulado IPCA (nova série de índices)
   document.getElementById('gerado').textContent='atualizado em '+D.gerado_em+(D_fxUSD?(' · dólar R$ '+D_fxUSD.toFixed(2)):'');
   renderPiStatus(); renderSunoStatus();
 
@@ -1707,7 +1757,7 @@ async function boot(){
   sb=window.supabase.createClient(window.SUPA_CONFIG.url, window.SUPA_CONFIG.anonKey,
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
-  diag('versão v3.20.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.21.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
