@@ -154,7 +154,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.22.0 · 2026-07-27</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.23.0 · 2026-07-27</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -663,16 +663,21 @@ function renderDash(){
    POSICOES
 ==================================================================== */
 let posTipo='Acoes', posSort={k:'rank',dir:1};
-let showResReal=LSget('pos_resreal',false);   // coluna "Resultado real" oculta por padrão
+let showPMaj=LSget('pos_pmaj',false);   // coluna "PM ajustado" oculta por padrão
 function renderPos(){
   if(posTipo==='Renda Fixa'){ renderRF(); return; }
   const showObj=owner!=='Consolidado';
   const real=(D.posicoes[owner]||[]).filter(r=>r.classe===posTipo);
-  // resultado real = L/P + proventos do ativo corrigidos pela inflação (IPCA) até hoje
+  // PM ajustado = preço médio menos os proventos (nominais) já recebidos por cota
   const provR=provRealByTicker(owner);
-  real.forEach(r=>{ const pr=provR[r.ticker]||{real:0,nom:0};
-    r._provReal=pr.real; r._resReal=r.lucro+pr.real;
-    r._resRealPct=r.custo?r._resReal/r.custo*100:0; });
+  real.forEach(r=>{ const pr=provR[r.ticker]||{nom:0};
+    r._provNom=pr.nom;
+    r._lpAj=r.lucro+r._provNom;                       // = valor − custoAj
+    const custoAj=r.custo-r._provNom;
+    r._lpAjPct=custoAj>0?r._lpAj/custoAj*100:null;     // null = "pago" (dividendos ≥ custo)
+    r._pmAj   = r.qtd>0 ? r.pm - r._provNom/r.qtd : r.pm;
+    r._pmAjNat= (r.qtd>0 && r.fx) ? r.pm_nat - (r._provNom/r.qtd)/r.fx : r.pm_nat;
+  });
   // totais/KPIs só das posições REAIS (as fantasma valem 0, mas nem entram na conta)
   const totValor=real.reduce((s,r)=>s+r.valor,0), totCusto=real.reduce((s,r)=>s+r.custo,0);
   const totClasse=totValor||1, totLP=totValor-totCusto;
@@ -693,11 +698,11 @@ function renderPos(){
     <div><div class="sub">Custo total</div><div style="font-weight:800;font-size:18px">${fmt(totCusto)}</div></div>
     <div><div class="sub">Valor total</div><div style="font-weight:800;font-size:18px">${fmt(totValor)}</div></div>
     <div><div class="sub">Resultado</div><div class="${cls(totLP)}" style="font-weight:800;font-size:18px">${sig(totLP)} <span style="font-size:12px">(${(totCusto?totLP/totCusto*100:0).toFixed(1)}%)</span></div></div>
-    <div style="margin-left:auto;align-self:center"><span id="tgResReal" class="tag" title="mostra/oculta a coluna 'Resultado real' = L/P + dividendos corrigidos pelo IPCA" style="cursor:pointer;user-select:none;${showResReal?'background:var(--c-rf);color:#fff':'background:transparent;color:var(--mut);border:1px solid var(--line)'}">${showResReal?'👁 Resultado real':'👁‍🗨 Resultado real'}</span></div>
+    <div style="margin-left:auto;align-self:center"><span id="tgPMaj" class="tag" title="mostra/oculta o preço médio já descontados os proventos recebidos" style="cursor:pointer;user-select:none;${showPMaj?'background:var(--c-rf);color:#fff':'background:transparent;color:var(--mut);border:1px solid var(--line)'}">${showPMaj?'👁 PM ajustado':'👁‍🗨 PM ajustado'}</span></div>
   </div>`;
   const cols=[['ticker','Ativo'],['preco','Preço (PM→atual)'],['qtd','Qtd'],
     ['valor','Valor'],['lucro','L/P'],['lucro_pct','L/P %'],
-    ...(showResReal?[['_resReal','Resultado real']]:[]),['valor','% atual']];
+    ...(showPMaj?[['_lpAj','PM ajustado']]:[]),['valor','% atual']];
   if(showObj) cols.push(['rank','Objetivo'],['rank','Diferença']);
   h+='<table><thead><tr>'+cols.map(c=>`<th data-k="${c[0]}">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
   rows.forEach(r=>{
@@ -726,11 +731,15 @@ function renderPos(){
       : `<td><div style="font-weight:700;color:${luc}">${fmt(r.preco)}</div><div class="sub" style="font-size:11px">PM ${fmt(r.pm)}</div></td>`;
     const objCells = showObj ? `<td><input data-tk="${esc(r.ticker)}" value="${obj!=null?(obj*100).toFixed(1):''}" placeholder="—" title="${manual?'manual (sobrescreve Suno)':'Suno'}" style="width:54px;text-align:right;background:var(--card2);color:${manual?'var(--c-stocks)':'var(--txt)'};border:1px solid var(--line);border-radius:5px;padding:1px 4px">%</td>`
       +`<td class="${dif!=null?cls(dif):''}">${dif!=null?(dif>0?'+':'')+dif.toFixed(1)+'%':'—'}</td>` : '';
-    const cobre = !ghost && r.lucro<0 && r._resReal>=0;
-    const resCell = !showResReal ? ''
+    const cobre = !ghost && r.lucro<0 && r._lpAj>=0;
+    const pmAjTxt = isU ? fmtU(r._pmAjNat) : fmt(r._pmAj);
+    const pctTxt  = r._lpAjPct==null ? 'pago' : (r._lpAjPct>0?'+':'')+r._lpAjPct.toFixed(1)+'%';
+    const pmajCell = !showPMaj ? ''
       : ghost
       ? '<td><span class="sub">—</span></td>'
-      : `<td class="${cls(r._resReal)}" title="L/P ${sig(r.lucro)} + proventos corrigidos ${fmt(r._provReal)} = ${sig(r._resReal)} (${(r._resRealPct>0?'+':'')+r._resRealPct.toFixed(1)}% sobre o custo)">${sig(r._resReal)}${cobre?' <span title="prejuízo nominal virou lucro somando os dividendos corrigidos pelo IPCA">🟢</span>':''}</td>`;
+      : `<td class="${cls(r._lpAj)}" title="PM ajustado = PM − proventos por cota (${fmt(r._provNom)} recebidos). Preço ${isU?fmtU(r.preco_nat):fmt(r.preco)} vs PM aj ${pmAjTxt}">`
+        +`<div style="font-weight:700">${pmAjTxt}</div>`
+        +`<div class="sub" style="font-size:11px">${pctTxt}${cobre?' 🟢':''}</div></td>`;
     h+=`<tr${ghost?' style="opacity:.62"':''}>
       <td><b>${esc(r.ticker)}</b>${vmark}${tags}</td>
       ${precoCell}
@@ -738,7 +747,7 @@ function renderPos(){
       <td>${ghost?'<span class="sub">—</span>':`<b>${fmt(r.valor)}</b>`}</td>
       <td class="${cls(r.lucro)}">${ghost?'—':sig(r.lucro)}</td>
       <td class="${cls(r.lucro)}">${ghost?'—':(r.lucro_pct>0?'+':'')+r.lucro_pct.toFixed(1)+'%'}</td>
-      ${resCell}
+      ${pmajCell}
       <td>${ghost?'<span class="sub">0,0%</span>':pct(atual*100)}</td>${objCells}</tr>`;
   });
   h+='</table>';
@@ -750,16 +759,15 @@ function renderPos(){
   if(ghosts.length) foot+=` · <span class="tag" style="background:transparent;color:var(--mut);border:1px dashed var(--line)">A comprar</span> = recomendado Suno que você ainda não tem (${ghosts.length})`;
   if(showObj) foot+=` · Objetivo editável (manual sobrescreve o Suno; vazio = volta ao Suno) · clique em "Objetivo" p/ ordenar por ranking`;
   if(!showObj) foot+=` · <span class="sub">visão Consolidada não usa objetivos (selecione Régis ou Theo)</span>`;
-  if(showResReal){
-    const temIPCA=!!(D.hist&&D.hist.indices&&D.hist.indices['IPCA']);
-    foot+=` · <b>Resultado real</b> = L/P + proventos do ativo ${temIPCA?'corrigidos pela inflação (IPCA) até hoje':'<span class="warn">(a valor de face — sem série IPCA)</span>'}`;
+  if(showPMaj){
+    foot+=` · <b>PM ajustado</b> = preço médio menos os proventos já recebidos por cota (valor de face) · <span class="pos">🟢</span> = preço atual acima do PM ajustado → dá pra vender no lucro mesmo abaixo do PM nominal`;
   }
   h+=`<div class="note">${foot}</div>`;
   const anyPrice=real.some(r=>r.fonte_preco==='yahoo');
   if(real.length && !anyPrice) h+=`<div class="note warn">⚠ Cotações no preço médio (sem cotação) — L/P zerado.</div>`;
   document.getElementById('posTable').innerHTML=h;
-  const tgRR=document.getElementById('tgResReal');
-  if(tgRR) tgRR.onclick=()=>{ showResReal=!showResReal; LSset('pos_resreal',showResReal); renderPos(); };
+  const tgRR=document.getElementById('tgPMaj');
+  if(tgRR) tgRR.onclick=()=>{ showPMaj=!showPMaj; LSset('pos_pmaj',showPMaj); renderPos(); };
   document.querySelectorAll('#posTable th[data-k]').forEach(th=>th.onclick=()=>{
     const k=th.dataset.k;
     if(k==='rank') posSort.dir=(posSort.k==='rank'?-posSort.dir:1);
@@ -1762,7 +1770,7 @@ async function boot(){
   sb=window.supabase.createClient(window.SUPA_CONFIG.url, window.SUPA_CONFIG.anonKey,
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
-  diag('versão v3.22.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.23.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
