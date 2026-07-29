@@ -155,7 +155,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.24.0 · 2026-07-28</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.25.0 · 2026-07-29</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -211,6 +211,7 @@ let evolModel=null;                     // geometria do grafico p/ o hover (cros
 let evolAnos=null;                      // anos selecionados (Set); vazio = Tudo; null = ainda não iniciado
 let dashProvSet=new Set();              // ativos selecionados nos proventos do dashboard (vazio = todos)
 let dashProvAno='Tudo';                 // filtro de ano nos proventos do dashboard
+let dashProvClasse='Todas';             // filtro de classe nos proventos do dashboard (Todas|Acoes|FIIs|Stocks)
 let provYearL='Todos';                  // aba Proventos (lista): filtro de ano
 let provFilterL={ativo:'',classe:'Todas',tipo:'Todos',origem:'Todas'};  // aba Proventos (lista): filtros
 
@@ -572,24 +573,30 @@ function renderDash(){
   [...dashProvSet].forEach(t=>{ if(!tickersP.includes(t)) dashProvSet.delete(t); });  // limpa ativos que sumiram
   const anosP=[...new Set(P.cells.map(c=>c.ano))].sort().reverse();
   if(dashProvAno!=='Tudo' && !anosP.includes(dashProvAno)) dashProvAno='Tudo';
-  const cellsP=P.cells.filter(c=>(!dashProvSet.size||dashProvSet.has(c.ticker)) && (dashProvAno==='Tudo'||c.ano===dashProvAno));
-  const provFiltrado = dashProvSet.size || dashProvAno!=='Tudo';
+  const CLS_LABEL={Acoes:'Ações',FIIs:'FIIs',Stocks:'Stocks'};
+  const classesP=['Acoes','FIIs','Stocks'].filter(k=>P.cells.some(c=>c.classe===k));
+  if(dashProvClasse!=='Todas' && !classesP.includes(dashProvClasse)) dashProvClasse='Todas';
+  const okClasse=c=> dashProvClasse==='Todas'||c.classe===dashProvClasse;
+  const cellsP=P.cells.filter(c=>(!dashProvSet.size||dashProvSet.has(c.ticker)) && (dashProvAno==='Tudo'||c.ano===dashProvAno) && okClasse(c));
+  const provFiltrado = dashProvSet.size || dashProvAno!=='Tudo' || dashProvClasse!=='Todas';
   const pv=provView(cellsP, provFiltrado?0:24);
   const selAll=new Set(['FIIs','Acoes','Stocks']);
   const provW=Math.max(320,((document.querySelector('.wrap')||{}).clientWidth||1084)-72);
   // dropdown agrupado por categoria, só com ativos ainda não escolhidos
   let tkOpts='<option value="">+ adicionar ativo…</option>';
   [['Acoes','Ações'],['FIIs','FIIs'],['Stocks','Stocks']].forEach(([k,lbl])=>{
+    if(dashProvClasse!=='Todas' && k!==dashProvClasse) return;   // só a classe ativa
     const ts=tickersP.filter(t=>!dashProvSet.has(t)&&tkClasse[t]===k);
     if(ts.length) tkOpts+=`<optgroup label="${lbl}">`+ts.map(t=>`<option value="${t}">${t}</option>`).join('')+'</optgroup>';
   });
   const anoBtns=['Tudo',...anosP].map(a=>`<button class="fbtn${String(a)===String(dashProvAno)?' on':''}" data-provano="${a}">${a}</button>`).join('');
+  const classeBtns=['Todas',...classesP].map(k=>`<button class="fbtn${String(k)===String(dashProvClasse)?' on':''}" data-provclasse="${k}">${k==='Todas'?'Todas':CLS_LABEL[k]}</button>`).join('');
   const chips=[...dashProvSet].sort().map(t=>
     `<span class="fbtn on" style="cursor:default;padding:2px 6px">${t} <span data-rmtk="${t}" style="cursor:pointer;font-weight:700;margin-left:2px">✕</span></span>`).join('');
   const provTitAtivos=dashProvSet.size?(dashProvSet.size<=3?[...dashProvSet].sort().join(', '):dashProvSet.size+' ativos'):'';
-  const provTitulo=[provTitAtivos, dashProvAno!=='Tudo'?dashProvAno:''].filter(Boolean).join(' · ');
-  // tabela mês a mês: respeita o filtro de ativos, mas sempre mostra todos os anos
-  const cellsAno=dashProvSet.size?P.cells.filter(c=>dashProvSet.has(c.ticker)):P.cells;
+  const provTitulo=[provTitAtivos, dashProvClasse!=='Todas'?CLS_LABEL[dashProvClasse]:'', dashProvAno!=='Tudo'?dashProvAno:''].filter(Boolean).join(' · ');
+  // tabela mês a mês: respeita o filtro de ativos e de classe, mas sempre mostra todos os anos
+  const cellsAno=(dashProvSet.size?P.cells.filter(c=>dashProvSet.has(c.ticker)):P.cells).filter(okClasse);
 
   document.getElementById('dash').innerHTML=`
     <div class="card" style="grid-column:1/-1">
@@ -627,6 +634,7 @@ function renderDash(){
           <label class="sub">Filtrar: <select id="dashProvSel" style="background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:3px 6px">${tkOpts}</select></label>
         </div>
       </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${classeBtns}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${anoBtns}</div>
       <div class="kpi">
         <div class="kpibox"><div class="l">Total (pago + estimado)</div><div class="v">${fmt(pv.realF+pv.estF)}</div></div>
@@ -657,6 +665,7 @@ function renderDash(){
   document.querySelectorAll('#dash [data-rmtk]').forEach(b=>b.onclick=()=>{ dashProvSet.delete(b.dataset.rmtk); renderDash(); });
   const pt=document.querySelector('#dash [data-provtodos]'); if(pt) pt.onclick=()=>{ dashProvSet.clear(); renderDash(); };
   document.querySelectorAll('#dash [data-provano]').forEach(b=>b.onclick=()=>{ dashProvAno=b.dataset.provano; renderDash(); });
+  document.querySelectorAll('#dash [data-provclasse]').forEach(b=>b.onclick=()=>{ dashProvClasse=b.dataset.provclasse; renderDash(); });
   wireEvol();
 }
 
@@ -1560,7 +1569,7 @@ function initPosUI(){
   const fd=document.getElementById('ownerSel'); fd.innerHTML='';
   OWNERS.forEach(v=>{
     const b=document.createElement('div'); b.className='fbtn'+(v===owner?' on':''); b.textContent=v;
-    b.onclick=()=>{owner=v;evolAnos=null;dashProvSet.clear();dashProvAno='Tudo';document.querySelectorAll('#ownerSel .fbtn').forEach(x=>x.classList.toggle('on',x===b));recalc();};
+    b.onclick=()=>{owner=v;evolAnos=null;dashProvSet.clear();dashProvAno='Tudo';dashProvClasse='Todas';document.querySelectorAll('#ownerSel .fbtn').forEach(x=>x.classList.toggle('on',x===b));recalc();};
     fd.appendChild(b);
   });
   // botão + banner do modo demonstração
@@ -1793,7 +1802,7 @@ async function boot(){
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
   document.getElementById('staleBanner').onclick=()=>location.reload();
-  diag('versão v3.24.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.25.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
