@@ -155,7 +155,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.25.0 · 2026-07-29</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.26.0 · 2026-07-31</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1004,8 +1004,9 @@ function renderMov(){
   rows.forEach(r=>{
     const cor=EVENTO_COR[r.evento]||'var(--txt)';
     const isU=r.moeda==='USD', money=v=>isU?fmtU(v):fmt(v), strip=v=>money(v).replace(isU?'US$ ':'R$ ','');
+    const semTk=String(r.ativo).startsWith('?');
     t+=`<tr>
-      <td>${fmtD(r.data)}</td><td><b>${esc(r.ativo)}</b>${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
+      <td>${fmtD(r.data)}</td><td>${semTk?`<b style="color:var(--c-stocks)" title="ticker não resolvido — resolva no aviso acima">⚠ ${esc(r.ativo)}</b>`:`<b>${esc(r.ativo)}</b>`}${isU?' <span class="sub" style="font-size:10px">US$</span>':''}</td>
       <td style="color:${cor}">${esc(r.evento)}</td><td>${esc(r.titular||'')}</td>
       <td class="sub">${esc(r.corretora||'')}</td>
       <td style="text-align:right">${fmt0(N(r.qtd))}</td>
@@ -1015,19 +1016,61 @@ function renderMov(){
       <td class="sub">${r.fonte==='nota'?'📄 nota':(r.fonte==='seed'?'histórico':esc(r.fonte||''))}</td></tr>`;
   });
   t+='</tbody></table>';
-  box.innerHTML=`
+  // Camada 1+3: lançamentos sem ticker resolvido ("?") na Visão atual — avisa e deixa resolver
+  const pendRows=movRows.filter(r=>(owner==='Consolidado'||r.titular===owner) && String(r.ativo).startsWith('?'));
+  const pendSpecs=[...new Set(pendRows.map(r=>r.ativo))].sort();
+  const known=[...new Set([
+    ...movRows.map(r=>r.ativo).filter(a=>a&&!String(a).startsWith('?')),
+    ...Object.values(D.posicoes||{}).flat().map(p=>p.ticker)
+  ])].filter(Boolean).sort();
+  const pendCard = !pendSpecs.length ? '' : `
+    <div class="card" style="border:1px solid var(--c-stocks);margin-bottom:12px">
+      <div style="color:var(--c-stocks);font-weight:800">⚠ ${pendSpecs.length} lançamento(s) sem ticker resolvido</div>
+      <div class="sub" style="margin:4px 0 10px">A nota não trouxe o código do ativo. Informe o ticker correto — corrige todos os lançamentos desse fundo e ensina o sistema para as próximas notas.</div>
+      <datalist id="tkKnown">${known.map(tk=>`<option value="${esc(tk)}">`).join('')}</datalist>
+      ${pendSpecs.map((spec,i)=>`
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+          <b style="min-width:180px">${esc(spec)}</b>
+          <input list="tkKnown" id="pendtk${i}" data-spec="${esc(spec)}" placeholder="TICKER11" style="text-transform:uppercase;width:120px;${FILTIN}">
+          <button class="fbtn" data-resolve="${i}" style="cursor:pointer">Resolver</button>
+          <span class="sub" id="pendst${i}"></span>
+        </div>`).join('')}
+    </div>`;
+  box.innerHTML=pendCard+`
     <div class="kpi" style="margin-bottom:12px">
       <div class="kpibox"><div class="l">Lançamentos</div><div class="v">${fmt0(rows.length)}</div></div>
       <div class="kpibox"><div class="l">Compras</div><div class="v" style="font-size:18px">${nCompra}</div></div>
       <div class="kpibox"><div class="l">Vendas</div><div class="v" style="font-size:18px">${nVenda}</div></div>
       <div class="kpibox"><div class="l">Taxas no período</div><div class="v" style="font-size:18px">${fmt(totTax)}</div></div>
     </div>${yb}<div style="overflow-x:auto">${t}</div>`;
+  box.querySelectorAll('[data-resolve]').forEach(b=>b.onclick=()=>{
+    const i=b.dataset.resolve, inp=document.getElementById('pendtk'+i), st=document.getElementById('pendst'+i);
+    resolverTicker(inp.dataset.spec, String(inp.value||'').trim().toUpperCase(), st);
+  });
   box.querySelectorAll('[data-ano]').forEach(b=>b.onclick=()=>{ movYear=b.dataset.ano; renderMov(); });
   const at=document.getElementById('fAtivo');
   if(at) at.oninput=()=>{ movFilter.ativo=at.value; const pos=at.selectionStart; renderMov();
     const ne=document.getElementById('fAtivo'); if(ne){ ne.focus(); try{ne.setSelectionRange(pos,pos);}catch(e){}} };
   [['fEvento','evento'],['fTitular','titular'],['fCorretora','corretora'],['fOrigem','origem']].forEach(([id,key])=>{
     const el=document.getElementById(id); if(el) el.onchange=()=>{ movFilter[key]=el.value; renderMov(); }; });
+}
+// normaliza a descrição "?FII MAXI REN CI" -> "FII MAXI REN CI" (UPPER, espaços colapsados) —
+// mesma regra do parser no Pi, p/ o de-para aprendido bater
+const normSpec=s=>String(s).replace(/^\?/,'').toUpperCase().replace(/\s+/g,' ').trim();
+// Camada 3: corrige TODAS as linhas do fundo, ensina o cfg_ticker_map e dispara recompute no Pi
+async function resolverTicker(oldAtivo, tk, st){
+  if(!/^[A-Z]{4}\d{1,2}$/.test(tk)){ st.style.color='var(--neg)'; st.textContent='Ticker inválido (ex.: MXRF11).'; return; }
+  st.style.color='var(--mut)'; st.textContent='Corrigindo…';
+  try{
+    const up=await sb.from('movimentacao').update({ativo:tk}).eq('owner_uid',UID).eq('ativo',oldAtivo);
+    if(up.error) throw up.error;
+    // ensina o parser (best-effort: se cfg_ticker_map ainda não existir, ignora)
+    await sb.from('cfg_ticker_map').upsert({owner_uid:UID, spec:normSpec(oldAtivo), ticker:tk},{onConflict:'owner_uid,spec'});
+    const ins=await sb.from('import_jobs').insert({owner_uid:UID, tipo:'recompute', arquivo_path:'', status:'pendente'}).select('id').single();
+    if(ins.error) throw ins.error;
+    st.style.color='var(--mut)'; st.textContent='Recalculando no Raspberry… (job '+ins.data.id+')';
+    pollImport(ins.data.id, st, 0);
+  }catch(e){ st.style.color='var(--neg)'; st.textContent='Erro: '+(e.message||e); }
 }
 
 /* ====================================================================
@@ -1802,7 +1845,7 @@ async function boot(){
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
   document.getElementById('staleBanner').onclick=()=>location.reload();
-  diag('versão v3.25.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.26.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
