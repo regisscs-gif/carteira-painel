@@ -155,7 +155,7 @@
 
 <div id="sunostatus" style="position:fixed;right:8px;bottom:38px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
 <div id="pistatus" style="position:fixed;right:8px;bottom:22px;font-size:11px;color:var(--mut);z-index:60;pointer-events:none"></div>
-<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.26.0 · 2026-07-31</div>
+<div id="versao" style="position:fixed;right:8px;bottom:6px;font-size:11px;color:var(--mut);opacity:.55;z-index:60;pointer-events:none">v3.27.0 · 2026-11-25</div>
 
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -681,7 +681,7 @@ function renderPos(){
   // PM ajustado = preço médio menos os proventos (nominais) já recebidos por cota
   const provR=provRealByTicker(owner);
   real.forEach(r=>{ const pr=provR[r.ticker]||{nom:0};
-    r._provNom=pr.nom;
+    r._provNom=pr.nom; r._provHerd=pr.herd||0; r._provDe=pr.de||[];
     r._lpAj=r.lucro+r._provNom;                       // = valor − custoAj
     const custoAj=r.custo-r._provNom;
     r._lpAjPct=custoAj>0?r._lpAj/custoAj*100:null;     // null = "pago" (dividendos ≥ custo)
@@ -747,7 +747,7 @@ function renderPos(){
     const pmajCell = !showPMaj ? ''
       : ghost
       ? '<td><span class="sub">—</span></td>'
-      : `<td class="${cls(r._lpAj)}" title="PM ajustado = PM − proventos por cota (${fmt(r._provNom)} recebidos). Preço ${isU?fmtU(r.preco_nat):fmt(r.preco)} vs PM aj ${pmAjTxt}">`
+      : `<td class="${cls(r._lpAj)}" title="PM ajustado = PM − proventos por cota (${fmt(r._provNom)} recebidos${r._provHerd?', dos quais '+fmt(r._provHerd)+' herdados de '+esc(r._provDe.join(' → ')):''}). Preço ${isU?fmtU(r.preco_nat):fmt(r.preco)} vs PM aj ${pmAjTxt}">`
         +`<div style="font-weight:700">${pmAjTxt}</div>`
         +`<div class="sub" style="font-size:11px">${pctTxt}${cobre?' 🟢':''}</div></td>`;
     h+=`<tr${ghost?' style="opacity:.62"':''}>
@@ -1438,6 +1438,23 @@ function provRealByTicker(owner){
   const m={};
   cells.forEach(c=>{ const e=m[c.ticker]=m[c.ticker]||{nom:0,real:0};
     e.nom+=c.valor; e.real+=c.valor*ipcaFactor(c.mes); });
+  // conversões/incorporações (ex.: KISU11 -> SNME11): o custo migra p/ o ativo novo, então os
+  // proventos recebidos pelo antigo também contam no PM ajustado do novo. Ordem cronológica
+  // p/ encadear (A->B->C). Antigo = '<- X' do obs; senão, a Conversao-saida do mesmo dia/titular.
+  const conv=movRows.filter(r=>r.evento==='Conversao-entrada' && (owner==='Consolidado'||r.titular===owner))
+    .sort((a,b)=>String(a.data).localeCompare(String(b.data)));
+  const feito=new Set();
+  conv.forEach(r=>{
+    const mo=/<-\s*([A-Z0-9]+)/.exec(r.obs||'');
+    let de=mo?mo[1]:null;
+    if(!de){ const s=movRows.find(x=>x.evento==='Conversao-saida' && x.data===r.data && x.titular===r.titular && x.ativo!==r.ativo); de=s&&s.ativo; }
+    if(!de || de===r.ativo || feito.has(de+'>'+r.ativo)) return;
+    feito.add(de+'>'+r.ativo);      // Consolidado: Regis e Theo podem ter a mesma conversão
+    const o=m[de]; if(!o || !o.nom) return;
+    const e=m[r.ativo]=m[r.ativo]||{nom:0,real:0};
+    e.nom+=o.nom; e.real+=o.real;
+    e.herd=(e.herd||0)+o.nom; e.de=(e.de||[]).concat((o.de||[]), [de]);
+  });
   return m;
 }
 
@@ -1845,7 +1862,7 @@ async function boot(){
     {auth:{detectSessionInUrl:true, flowType:'pkce', persistSession:true, autoRefreshToken:true}});
   document.getElementById('sair').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
   document.getElementById('staleBanner').onclick=()=>location.reload();
-  diag('versão v3.26.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
+  diag('versão v3.27.0 · search="'+location.search+'" hash="'+location.hash.slice(0,50)+'"');
   if((location.search+location.hash).indexOf('error')>=0)
     diag('⚠ a URL voltou com ERRO: '+location.search+' '+location.hash);
   sb.auth.onAuthStateChange((e,session)=>{ diag('evento auth: '+e+' · sessão='+(!!session)); if(session) startApp(session); });
